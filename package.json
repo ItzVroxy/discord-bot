@@ -1,0 +1,16 @@
+{
+  "name": "tvb-assistant",
+  "version": "1.0.0",
+  "description": "TVB Assistant Discord bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "discord.js": "14.27.0",
+    "express": "^5.1.0"
+  }
+}
