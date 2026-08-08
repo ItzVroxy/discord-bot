@@ -1,4 +1,5 @@
-const express = require("express");
+const express = require('express');
+
 const {
   Client,
   GatewayIntentBits,
@@ -17,35 +18,40 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle
-} = require("discord.js");
+} = require('discord.js');
 
-const fs = require("fs");
+const fs = require('fs');
+
+// ============================================================
+// ENVIRONMENT
+// ============================================================
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
 if (!TOKEN) {
-  console.error("Missing DISCORD_TOKEN environment variable.");
+  console.error('Missing DISCORD_TOKEN environment variable.');
   process.exit(1);
 }
 
-/* =========================================================
-   WEB SERVER
-========================================================= */
-
-const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.get("/", (_req, res) => {
-  res.status(200).send("TVB Assistant is online.");
+// ============================================================
+// EXPRESS KEEP-ALIVE
+// ============================================================
+
+const app = express();
+
+app.get('/', (_req, res) => {
+  res.status(200).send('TVB Assistant is online.');
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Web server listening on ${PORT}`);
 });
 
-/* =========================================================
-   DISCORD CLIENT
-========================================================= */
+// ============================================================
+// DISCORD CLIENT
+// ============================================================
 
 const client = new Client({
   intents: [
@@ -55,22 +61,29 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages
   ],
-  partials: [Partials.Channel]
+
+  partials: [
+    Partials.Channel
+  ]
 });
 
-/* =========================================================
-   CONFIG
-========================================================= */
+// ============================================================
+// CONFIG
+// ============================================================
 
-const CONFIG_FILE = "./config.json";
+const CONFIG_FILE = './config.json';
+
 let config = {};
 
 try {
   if (fs.existsSync(CONFIG_FILE)) {
-    config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+    config = JSON.parse(
+      fs.readFileSync(CONFIG_FILE, 'utf8')
+    );
   }
 } catch (error) {
-  console.error("Could not load config:", error);
+  console.error('Could not load config:', error);
+  config = {};
 }
 
 function saveConfig() {
@@ -80,58 +93,77 @@ function saveConfig() {
       JSON.stringify(config, null, 2)
     );
   } catch (error) {
-    console.error("Could not save config:", error);
+    console.error('Could not save config:', error);
   }
 }
 
-function guildConfig(id) {
-  if (!config[id]) {
-    config[id] = {
-      welcomeChannel: null,
-      welcomeMessage:
-        "Welcome {user} to **{server}**! 🎉",
-
-      autorole: null,
-
-      ticketCategory: null,
-      ticketStaffRole: null,
-
-      buttonRoles: [],
-
-      updatesChannel: null,
-
-      roleNames: {
-        staffTeam: "Staff Team",
-        helper: "Helper",
-        builder: "Builder",
-        staffBlacklist: "Staff Application Blacklist",
-        builderBlacklist: "Builder Application Blacklist"
-      }
-    };
+function guildConfig(guildId) {
+  if (!config[guildId]) {
+    config[guildId] = {};
   }
 
-  const c = config[id];
+  const cfg = config[guildId];
 
-  if (!Array.isArray(c.buttonRoles)) {
-    c.buttonRoles = [];
+  if (!('welcomeChannel' in cfg)) {
+    cfg.welcomeChannel = null;
   }
 
-  if (!c.roleNames) {
-    c.roleNames = {
-      staffTeam: "Staff Team",
-      helper: "Helper",
-      builder: "Builder",
-      staffBlacklist: "Staff Application Blacklist",
-      builderBlacklist: "Builder Application Blacklist"
-    };
+  if (!('welcomeMessage' in cfg)) {
+    cfg.welcomeMessage =
+      'Welcome {user} to **{server}**! 🎉';
   }
 
-  return c;
+  if (!('autorole' in cfg)) {
+    cfg.autorole = null;
+  }
+
+  if (!('ticketCategory' in cfg)) {
+    cfg.ticketCategory = null;
+  }
+
+  if (!('ticketStaffRole' in cfg)) {
+    cfg.ticketStaffRole = null;
+  }
+
+  if (!Array.isArray(cfg.buttonRoles)) {
+    cfg.buttonRoles = [];
+  }
+
+  if (!cfg.strikes) {
+    cfg.strikes = {};
+  }
+
+  if (!cfg.strikes.staff) {
+    cfg.strikes.staff = {};
+  }
+
+  if (!cfg.strikes.builder) {
+    cfg.strikes.builder = {};
+  }
+
+  saveConfig();
+
+  return cfg;
 }
 
-/* =========================================================
-   HELPERS
-========================================================= */
+// ============================================================
+// ROLE NAMES
+// ============================================================
+
+const ROLE_NAMES = {
+  updates: 'updates',
+
+  staffTeam: 'staff team',
+  helper: 'helper',
+  staffBlacklist: 'staff application blacklist',
+
+  builder: 'builder',
+  builderBlacklist: 'builder application blacklist'
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
 
 function manager(interaction) {
   return Boolean(
@@ -156,9 +188,9 @@ function moderator(interaction) {
 function safe(value) {
   return String(value)
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 60) || "user";
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60) || 'user';
 }
 
 function embed(
@@ -171,7 +203,7 @@ function embed(
     .setTitle(title)
     .setDescription(description)
     .setFooter({
-      text: "TVB Assistant"
+      text: 'TVB Assistant'
     })
     .setTimestamp();
 }
@@ -180,89 +212,191 @@ function findText(guild, name) {
   return guild.channels.cache.find(
     channel =>
       channel.type === ChannelType.GuildText &&
-      channel.name.toLowerCase() === name.toLowerCase()
+      channel.name.toLowerCase() ===
+        name.toLowerCase()
   );
 }
 
 function findRole(guild, name) {
+  if (!name) return null;
+
+  const normalized = name
+    .toLowerCase()
+    .replace(/^@/, '')
+    .trim();
+
   return guild.roles.cache.find(
     role =>
-      role.name.toLowerCase() === name.toLowerCase()
-  );
+      role.name.toLowerCase() === normalized
+  ) || null;
 }
 
-function replaceVariables(text, user, server) {
-  return String(text)
-    .replace(/\{user\}/gi, `${user}`)
-    .replace(/\{username\}/gi, user.username)
-    .replace(/\{server\}/gi, server.name);
+function findRoleByNames(guild, names) {
+  for (const name of names) {
+    const role = findRole(guild, name);
+
+    if (role) {
+      return role;
+    }
+  }
+
+  return null;
 }
 
-/* =========================================================
-   TICKETS
-========================================================= */
+async function getOrCreateRole(guild, name) {
+  const existing = findRole(guild, name);
+
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    return await guild.roles.create({
+      name,
+      reason: 'TVB Assistant team system'
+    });
+  } catch (error) {
+    console.error(
+      `Could not create role ${name}:`,
+      error
+    );
+
+    return null;
+  }
+}
+
+// ============================================================
+// TICKETS
+// ============================================================
 
 const TICKETS = {
   general: {
-    label: "General Support",
-    emoji: "💬",
-    desc: "Questions, help, bugs, or anything else.",
-    questions: [
-      "What do you need help with?",
-      "What happened?",
-      "Which server/channel is this about?",
-      "What have you tried already?",
-      "Anything else we should know?"
+    label: 'General Support',
+    emoji: '💬',
+    desc: 'Questions, help, bugs, or anything else.',
+
+    q: [
+      'What do you need help with?',
+      'What happened?',
+      'Which server/channel is this about?',
+      'What have you tried already?',
+      'Anything else we should know?'
     ]
   },
 
   purchase: {
-    label: "Purchase Support",
-    emoji: "🛒",
-    desc: "Purchases, payments, orders, or missing items.",
-    questions: [
-      "What did you purchase?",
-      "When did you purchase it?",
-      "What went wrong?",
-      "Do you have an order or transaction ID?",
-      "What would you like us to do?"
+    label: 'Purchase Support',
+    emoji: '🛒',
+    desc: 'Purchases, payments, orders, or missing items.',
+
+    q: [
+      'What did you purchase?',
+      'When did you purchase it?',
+      'What went wrong?',
+      'Do you have an order or transaction ID?',
+      'What would you like us to do?'
     ]
   },
 
   player: {
-    label: "Player Report",
-    emoji: "🚨",
-    desc: "Report cheating, rule breaking, or another player.",
-    questions: [
-      "What is the player's username?",
-      "What happened?",
-      "When and where did it happen?",
-      "Do you have proof, screenshots, or video?",
-      "Anything else staff should know?"
+    label: 'Player Report',
+    emoji: '🚨',
+    desc: 'Report cheating, rule breaking, or another player.',
+
+    q: [
+      'What is the player username?',
+      'What happened?',
+      'When and where did it happen?',
+      'Do you have proof, screenshots, or video?',
+      'Anything else staff should know?'
     ]
   },
 
   staff: {
-    label: "Staff Report",
-    emoji: "🛡️",
-    desc: "Report a concern involving a staff member.",
-    questions: [
-      "Which staff member is this about?",
-      "Please describe exactly what happened.",
-      "When and where did this happen?",
-      "Do you have screenshots, video, or other evidence?",
-      "What outcome are you hoping for?"
+    label: 'Staff Report',
+    emoji: '🛡️',
+    desc: 'Report a concern involving a staff member.',
+
+    q: [
+      'Which staff member?',
+      'What happened?',
+      'When and where did this occur?',
+      'Do you have proof, screenshots, or video?',
+      'What outcome are you hoping for?'
     ]
   }
 };
 
+// ============================================================
+// APPLICATIONS
+// ============================================================
+
+const APPS = {
+  builder: {
+    label: 'Builder Application',
+    emoji: '🧱',
+    channel: '📋・builder-submissions',
+
+    q: [
+      'What is your Minecraft username?',
+      'How old are you?',
+      'What timezone are you normally active in?',
+      'How long have you been seriously building in Minecraft?',
+      'Which building styles are you most experienced with?',
+      'Which building style would you consider your strongest?',
+      'What types of projects do you enjoy working on most?',
+      'What aspect of your building are you currently trying to improve?',
+      'Approximately how many hours per week can you consistently contribute?',
+      'Why are you interested in becoming a TVB builder?',
+      'How do you respond when another builder gives you critical feedback?',
+      'Do you work more effectively independently or as part of a team, and why?',
+      'Please provide screenshots, a portfolio, or links to examples of your work.',
+      'What separates an average Minecraft build from a genuinely polished build?',
+      'If another builder strongly disagreed with one of your design decisions, how would you handle the situation?'
+    ]
+  },
+
+  staff: {
+    label: 'Staff Application',
+    emoji: '🛡️',
+    channel: '📋・staff-submissions',
+
+    q: [
+      'What is your Discord username?',
+      'How old are you?',
+      'What timezone are you normally active in?',
+      'How long have you been an active member of the TVB community?',
+      'Have you previously held a moderation or staff position? If so, briefly explain your responsibilities.',
+      'How many hours per week can you realistically and consistently dedicate to staff duties?',
+      'Why do you believe you would be a valuable addition to the TVB staff team?',
+      'In your opinion, what qualities separate an excellent staff member from an average one?',
+      'How would you professionally de-escalate a disagreement between two members?',
+      'If a close friend violated the rules, how would you handle the situation?',
+      'How would you respond if a player repeatedly ignored warnings from staff?',
+      'Walk us through how you would investigate and handle a serious player report.',
+      'How would you protect confidential staff information and private discussions?',
+      'What personal strengths would you bring to the staff team?',
+      'What is one area of your communication, judgment, or leadership that you would like to improve?'
+    ]
+  }
+};
+
+// ============================================================
+// SESSION STORAGE
+// ============================================================
+
+const appSessions = new Map();
 const ticketSessions = new Map();
+
+// ============================================================
+// TICKET MENU
+// ============================================================
 
 function ticketMenu() {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId("ticket-select")
-      .setPlaceholder("🎫 Select support type...")
+      .setCustomId('ticket-select')
+      .setPlaceholder('🎫 Select support type...')
       .addOptions(
         Object.entries(TICKETS).map(
           ([value, ticket]) =>
@@ -276,7 +410,78 @@ function ticketMenu() {
   );
 }
 
-async function createTicket(interaction, type) {
+// ============================================================
+// APPLICATION MENU
+// ============================================================
+
+function appMenu() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('application-select')
+      .setPlaceholder('📋 Choose an application...')
+      .addOptions(
+        Object.entries(APPS).map(
+          ([value, application]) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel(application.label)
+              .setValue(value)
+              .setEmoji(application.emoji)
+              .setDescription(
+                '15 questions • completed privately in DMs'
+              )
+        )
+      )
+  );
+}
+
+// ============================================================
+// TICKET MODAL
+// ============================================================
+
+function ticketModal(type) {
+  const ticket = TICKETS[type];
+
+  const modal = new ModalBuilder()
+    .setCustomId(`ticket-modal-${type}`)
+    .setTitle(ticket.label);
+
+  const inputs = [];
+
+  ticket.q.forEach((question, index) => {
+    const input = new TextInputBuilder()
+      .setCustomId(`ticket-answer-${index}`)
+      .setLabel(
+        question.length > 45
+          ? question.slice(0, 42) + '...'
+          : question
+      )
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true)
+      .setMaxLength(1000)
+      .setPlaceholder('Type your answer here...');
+
+    inputs.push(input);
+  });
+
+  modal.addComponents(
+    inputs.map(
+      input =>
+        new ActionRowBuilder().addComponents(input)
+    )
+  );
+
+  return modal;
+}
+
+// ============================================================
+// CREATE TICKET
+// ============================================================
+
+async function createTicket(
+  interaction,
+  type,
+  answers = null
+) {
   const guild = interaction.guild;
   const member = interaction.member;
   const cfg = guildConfig(guild.id);
@@ -284,7 +489,7 @@ async function createTicket(interaction, type) {
 
   if (!ticket) {
     return interaction.reply({
-      content: "❌ Invalid ticket type.",
+      content: '❌ Invalid ticket type.',
       ephemeral: true
     });
   }
@@ -292,7 +497,8 @@ async function createTicket(interaction, type) {
   const existing = guild.channels.cache.find(
     channel =>
       channel.type === ChannelType.GuildText &&
-      channel.topic === `TVB-TICKET:${member.id}`
+      channel.topic ===
+        `TVB-TICKET:${member.id}`
   );
 
   if (existing) {
@@ -310,6 +516,7 @@ async function createTicket(interaction, type) {
   const overwrites = [
     {
       id: guild.roles.everyone.id,
+
       deny: [
         PermissionsBitField.Flags.ViewChannel
       ]
@@ -317,6 +524,7 @@ async function createTicket(interaction, type) {
 
     {
       id: member.id,
+
       allow: [
         PermissionsBitField.Flags.ViewChannel,
         PermissionsBitField.Flags.SendMessages,
@@ -328,6 +536,7 @@ async function createTicket(interaction, type) {
   if (staffRole) {
     overwrites.push({
       id: staffRole.id,
+
       allow: [
         PermissionsBitField.Flags.ViewChannel,
         PermissionsBitField.Flags.SendMessages,
@@ -349,150 +558,266 @@ async function createTicket(interaction, type) {
       reason: `TVB Assistant • ${ticket.label}`
     });
   } catch (error) {
-    console.error("Could not create ticket:", error);
+    console.error('Could not create ticket:', error);
 
     return interaction.reply({
       content:
-        "❌ I couldn't create the ticket. Make sure I have **Manage Channels** and **Manage Roles**.",
+        '❌ I could not create the ticket. Check my permissions and category settings.',
       ephemeral: true
     });
   }
 
-  const modal = new ModalBuilder()
-    .setCustomId(`ticket-modal-${type}-${channel.id}`)
-    .setTitle(ticket.label);
+  const session = {
+    userId: member.id,
+    type,
+    currentQuestion: 0,
+    answers: answers || []
+  };
 
-  const inputs = [];
+  ticketSessions.set(
+    channel.id,
+    session
+  );
 
-  for (let i = 0; i < ticket.questions.length; i++) {
-    inputs.push(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId(`question-${i}`)
-          .setLabel(
-            ticket.questions[i].slice(0, 45)
-          )
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-          .setMaxLength(1000)
-      )
+  const answerText = answers
+    ? ticket.q
+        .map(
+          (question, index) =>
+            `**${index + 1}. ${question}**\n> ${
+              answers[index] || 'No answer provided.'
+            }`
+        )
+        .join('\n\n')
+    : 'Please answer the questions below.';
+
+  const ticketEmbed = embed(
+    `${ticket.emoji} ${ticket.label}`,
+    [
+      `Welcome ${member}!`,
+      '',
+      `**${ticket.desc}**`,
+      '',
+      answerText,
+      '',
+      'A staff member will review your ticket shortly.'
+    ].join('\n')
+  );
+
+  const buttons =
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('ticket-close')
+        .setLabel('Close Ticket')
+        .setEmoji('🔒')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+  try {
+    await channel.send({
+      content:
+        `${member}${staffRole ? ` ${staffRole}` : ''}`,
+
+      embeds: [
+        ticketEmbed
+      ],
+
+      components: [
+        buttons
+      ]
+    });
+  } catch (error) {
+    console.error(
+      'Could not send ticket message:',
+      error
     );
   }
 
-  modal.addComponents(inputs);
+  if (answers) {
+    ticketSessions.delete(channel.id);
+  }
 
-  ticketSessions.set(channel.id, {
-    userId: member.id,
-    type
+  return interaction.reply({
+    content:
+      `✅ Your ticket has been created: ${channel}`,
+    ephemeral: true
+  });
+}
+
+// ============================================================
+// CLOSE TICKET
+// ============================================================
+
+async function closeTicket(interaction) {
+  const channel = interaction.channel;
+
+  const session =
+    ticketSessions.get(channel.id);
+
+  if (!session) {
+    return interaction.reply({
+      content:
+        "⚠️ This isn't an active TVB ticket.",
+      ephemeral: true
+    });
+  }
+
+  const cfg = guildConfig(
+    interaction.guild.id
+  );
+
+  const staffRole = cfg.ticketStaffRole
+    ? interaction.guild.roles.cache.get(
+        cfg.ticketStaffRole
+      )
+    : null;
+
+  const isStaff =
+    staffRole &&
+    interaction.member.roles.cache.has(
+      staffRole.id
+    );
+
+  if (
+    session.userId !== interaction.user.id &&
+    !isStaff &&
+    !moderator(interaction)
+  ) {
+    return interaction.reply({
+      content:
+        '❌ Only the ticket creator or ticket staff can close this ticket.',
+      ephemeral: true
+    });
+  }
+
+  await interaction.reply({
+    content:
+      '🔒 Closing this ticket in 5 seconds...'
   });
 
-  await interaction.showModal(modal);
+  setTimeout(async () => {
+    try {
+      await channel.delete(
+        'TVB Assistant ticket closed'
+      );
+    } catch (error) {
+      console.error(
+        'Could not delete ticket:',
+        error
+      );
+    }
+  }, 5000);
 }
 
-/* =========================================================
-   APPLICATIONS
-========================================================= */
+// ============================================================
+// TICKET PANEL
+// ============================================================
 
-const APPS = {
-  builder: {
-    label: "Builder Application",
-    emoji: "🧱",
-    channel: "#📋・builder-submissions",
+async function sendTicketPanel(interaction) {
+  const panel = new EmbedBuilder()
+    .setColor(0x7c5cff)
+    .setTitle('🎫 TVB Support Center')
+    .setDescription(
+      [
+        '# Need some help?',
+        '',
+        'Welcome to the **TVB Support Center**!',
+        '',
+        'Select the category below that best matches your issue.',
+        '',
+        '💬 **General Support**',
+        'Questions, bugs, help, or anything else.',
+        '',
+        '🛒 **Purchase Support**',
+        'Purchases, payments, orders, or missing items.',
+        '',
+        '🚨 **Player Report**',
+        'Report cheating or rule breaking.',
+        '',
+        '🛡️ **Staff Report**',
+        'Report a concern involving staff.',
+        '',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '🔒 **Tickets are private.**',
+        '',
+        'Selecting a category will open a short form.'
+      ].join('\n')
+    )
+    .setFooter({
+      text: 'TVB Assistant • Support Center'
+    })
+    .setTimestamp();
 
-    questions: [
-      "Minecraft username?",
-      "Age?",
-      "Timezone?",
-      "What role are you applying for?",
-      "How long have you been building in Minecraft?",
-      "Which building styles are you most experienced with?",
-      "What types of projects do you feel you contribute to best?",
-      "What is a build you are particularly proud of, and why?",
-      "How do you approach planning a large project before beginning construction?",
-      "How do you respond when someone gives you critical feedback on your work?",
-      "How comfortable are you working as part of a larger build team?",
-      "How many hours per week can you realistically dedicate to TVB?",
-      "What do you believe separates an average build from an exceptional one?",
-      "How would you handle a disagreement with another builder about the direction of a project?",
-      "Why do you believe you would be a valuable addition to the TVB building team?"
-    ]
-  },
+  await interaction.channel.send({
+    embeds: [panel],
+    components: [ticketMenu()]
+  });
 
-  staff: {
-    label: "Staff Application",
-    emoji: "🛡️",
-    channel: "#📋・staff-submissions",
-
-    questions: [
-      "Discord username?",
-      "Age?",
-      "Timezone?",
-      "What role are you applying for?",
-      "How long have you been part of the TVB community?",
-      "Have you held a moderation or staff position before? If so, describe your responsibilities.",
-      "What qualities do you believe define an effective and trustworthy staff member?",
-      "How would you handle a disagreement between two members without allowing personal bias to influence your decision?",
-      "A close friend of yours breaks a rule. How would you handle the situation?",
-      "How would you respond to a member who repeatedly ignores reasonable warnings?",
-      "How would you investigate a player report before making a disciplinary decision?",
-      "How would you handle a situation where you believe another staff member made an incorrect decision?",
-      "What steps would you take to protect confidential staff information?",
-      "What strengths would you bring to the TVB staff team, and how would those strengths benefit the community?",
-      "What is one area of your communication, leadership, or moderation ability that you are actively trying to improve?"
-    ]
-  }
-};
-
-const appSessions = new Map();
-
-/* =========================================================
-   APPLICATION MENU
-========================================================= */
-
-function appMenu() {
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId("application-select")
-      .setPlaceholder("📋 Choose an application...")
-      .addOptions(
-        Object.entries(APPS).map(
-          ([value, application]) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(application.label)
-              .setValue(value)
-              .setEmoji(application.emoji)
-              .setDescription(
-                "Complete 15 questions privately in DMs."
-              )
-        )
-      )
-  );
+  return interaction.reply({
+    content:
+      '✅ Ticket panel posted!',
+    ephemeral: true
+  });
 }
 
-/* =========================================================
-   APPLICATION START
-========================================================= */
+// ============================================================
+// APPLICATION START
+// ============================================================
 
-async function startApplication(interaction, type) {
+async function startApplication(
+  interaction,
+  type
+) {
   const application = APPS[type];
 
   if (!application) {
     return interaction.reply({
-      content: "❌ Invalid application type.",
+      content:
+        '❌ Invalid application type.',
       ephemeral: true
     });
   }
 
-  if (appSessions.has(interaction.user.id)) {
+  if (
+    appSessions.has(
+      interaction.user.id
+    )
+  ) {
     return interaction.reply({
       content:
-        "❌ You already have an application in progress. Check your DMs.",
+        '❌ You already have an application in progress. Check your DMs.',
+      ephemeral: true
+    });
+  }
+
+  const blacklistName =
+    type === 'staff'
+      ? ROLE_NAMES.staffBlacklist
+      : ROLE_NAMES.builderBlacklist;
+
+  const blacklistRole =
+    findRoleByNames(
+      interaction.guild,
+      [
+        blacklistName
+      ]
+    );
+
+  if (
+    blacklistRole &&
+    interaction.member.roles.cache.has(
+      blacklistRole.id
+    )
+  ) {
+    return interaction.reply({
+      content:
+        `❌ You are currently blacklisted from ${application.label.toLowerCase()}s.`,
       ephemeral: true
     });
   }
 
   try {
-    const dm = await interaction.user.createDM();
+    const dm =
+      await interaction.user.createDM();
 
     const session = {
       userId: interaction.user.id,
@@ -509,9 +834,7 @@ async function startApplication(interaction, type) {
 
     await interaction.reply({
       content:
-        `📋 **${application.label} started!**\n\n` +
-        "I've sent you a DM with your questions.\n\n" +
-        "⚠️ Make sure your Discord DMs are enabled.",
+        `📋 **${application.label} started!**\n\nI've sent you a DM with your questions.\n\n⚠️ Make sure your Discord DMs are enabled.`,
       ephemeral: true
     });
 
@@ -521,15 +844,15 @@ async function startApplication(interaction, type) {
           `${application.emoji} ${application.label}`,
           [
             `Welcome to the **${application.label}**!`,
-            "",
-            "You will answer **15 questions**, one at a time.",
-            "",
-            "📝 Answer each question honestly.",
-            "💬 Type your answer normally.",
-            "❌ Type `cancel` at any time to stop.",
-            "",
+            '',
+            'You will answer **15 questions**, one at a time.',
+            '',
+            '📝 Answer each question honestly.',
+            '💬 Type your answer normally.',
+            '❌ Type `cancel` at any time to stop.',
+            '',
             "Let's get started!"
-          ].join("\n")
+          ].join('\n')
         )
       ]
     });
@@ -538,9 +861,10 @@ async function startApplication(interaction, type) {
       dm,
       session
     );
+
   } catch (error) {
     console.error(
-      "Could not start application:",
+      'Could not start application:',
       error
     );
 
@@ -561,9 +885,9 @@ async function startApplication(interaction, type) {
   }
 }
 
-/* =========================================================
-   APPLICATION QUESTIONS
-========================================================= */
+// ============================================================
+// APPLICATION QUESTIONS
+// ============================================================
 
 async function sendNextApplicationQuestion(
   dm,
@@ -574,7 +898,7 @@ async function sendNextApplicationQuestion(
 
   if (
     session.questionIndex >=
-    application.questions.length
+    application.q.length
   ) {
     return finishApplication(
       dm,
@@ -583,7 +907,7 @@ async function sendNextApplicationQuestion(
   }
 
   const question =
-    application.questions[
+    application.q[
       session.questionIndex
     ];
 
@@ -594,49 +918,56 @@ async function sendNextApplicationQuestion(
         [
           `### Question ${
             session.questionIndex + 1
-          } of ${application.questions.length}`,
-          "",
+          } of ${application.q.length}`,
+          '',
           question,
-          "",
-          "💡 Take your time and give your best answer.",
-          "❌ Type `cancel` to stop."
-        ].join("\n")
+          '',
+          '💡 Take your time and give your best answer.',
+          '❌ Type `cancel` to stop.'
+        ].join('\n')
       )
     ]
   });
 }
 
-/* =========================================================
-   APPLICATION SUBMISSION
-========================================================= */
+// ============================================================
+// APPLICATION BUTTONS
+// ============================================================
 
-function applicationButtons(type, userId) {
+function applicationButtons(
+  type,
+  userId
+) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(
         `app-accept-${type}-${userId}`
       )
-      .setLabel("Accept")
-      .setEmoji("✅")
+      .setLabel('Accept')
+      .setEmoji('✅')
       .setStyle(ButtonStyle.Success),
 
     new ButtonBuilder()
       .setCustomId(
         `app-deny-${type}-${userId}`
       )
-      .setLabel("Deny")
-      .setEmoji("❌")
+      .setLabel('Deny')
+      .setEmoji('❌')
       .setStyle(ButtonStyle.Danger),
 
     new ButtonBuilder()
       .setCustomId(
         `app-blacklist-${type}-${userId}`
       )
-      .setLabel("Blacklist")
-      .setEmoji("🚫")
+      .setLabel('Blacklist')
+      .setEmoji('🚫')
       .setStyle(ButtonStyle.Secondary)
   );
 }
+
+// ============================================================
+// APPLICATION FINISH
+// ============================================================
 
 async function finishApplication(
   dm,
@@ -666,13 +997,13 @@ async function finishApplication(
       await dm.send({
         embeds: [
           embed(
-            "❌ Application Finished",
+            '❌ Application Finished',
             [
-              "Your application was completed,",
-              `but I couldn't find **${application.channel}**.`,
-              "",
-              "Please contact a server administrator."
-            ].join("\n"),
+              'Your application was completed,',
+              `but I couldn't find **#${application.channel}**.`,
+              '',
+              'Please contact a server administrator.'
+            ].join('\n'),
             0xed4245
           )
         ]
@@ -685,26 +1016,56 @@ async function finishApplication(
       return;
     }
 
-    const roleAnswer =
-      session.answers[3] ||
-      "Not specified";
+    const header = new EmbedBuilder()
+      .setColor(
+        session.type === 'staff'
+          ? 0x5865f2
+          : 0xf1c40f
+      )
+      .setTitle(
+        `${application.emoji} ${application.label}`
+      )
+      .setDescription(
+        [
+          `**Applicant:** ${member}`,
+          `**Username:** ${member.user.tag}`,
+          `**User ID:** ${member.id}`,
+          '',
+          '## 📋 Application Answers',
+          '',
+          'Review the complete application below.',
+          '',
+          'Use the buttons underneath to accept, deny, or blacklist this applicant.'
+        ].join('\n')
+      )
+      .setTimestamp();
 
-    const header = embed(
-      `${application.emoji} New ${application.label}`,
-      [
-        `**Applicant:** ${member}`,
-        `**Username:** ${member.user.tag}`,
-        `**User ID:** ${member.id}`,
-        `**Requested Role:** ${roleAnswer}`,
-        "",
-        "📋 **Application Answers**",
-        "",
-        "Review the answers below and choose an action."
-      ].join("\n")
-    );
+    const answerEmbed = new EmbedBuilder()
+      .setColor(0x7c5cff)
+      .setTitle('📝 Complete Application')
+      .setDescription(
+        session.answers
+          .map(
+            (answer, index) =>
+              `**${index + 1}. ${application.q[index]}**\n> ${
+                answer || 'No answer provided.'
+              }`
+          )
+          .join('\n\n')
+      )
+      .setFooter({
+        text:
+          `${application.label} • TVB Assistant`
+      });
 
     await submissionChannel.send({
-      embeds: [header],
+      content: `${member}`,
+
+      embeds: [
+        header,
+        answerEmbed
+      ],
+
       components: [
         applicationButtons(
           session.type,
@@ -713,37 +1074,17 @@ async function finishApplication(
       ]
     });
 
-    for (
-      let i = 0;
-      i < application.questions.length;
-      i++
-    ) {
-      await submissionChannel.send({
-        embeds: [
-          embed(
-            `Question ${i + 1} • ${application.label}`,
-            [
-              `**${application.questions[i]}**`,
-              "",
-              session.answers[i] ||
-                "No answer provided."
-            ].join("\n")
-          )
-        ]
-      });
-    }
-
     await dm.send({
       embeds: [
         embed(
-          "✅ Application Submitted!",
+          '✅ Application Submitted!',
           [
             `Your **${application.label}** has been submitted successfully.`,
-            "",
-            "Staff will review your application.",
-            "",
-            "Thank you for applying to TVB! 💙"
-          ].join("\n"),
+            '',
+            'Staff will review your application.',
+            '',
+            'Thank you for applying to TVB! 💙'
+          ].join('\n'),
           0x57f287
         )
       ]
@@ -752,15 +1093,16 @@ async function finishApplication(
     appSessions.delete(
       session.userId
     );
+
   } catch (error) {
     console.error(
-      "Could not finish application:",
+      'Could not finish application:',
       error
     );
 
     await dm.send({
       content:
-        "❌ Something went wrong while submitting your application. Please contact staff."
+        '❌ Something went wrong while submitting your application. Please contact staff.'
     }).catch(() => {});
 
     appSessions.delete(
@@ -769,11 +1111,13 @@ async function finishApplication(
   }
 }
 
-/* =========================================================
-   APPLICATION DM HANDLER
-========================================================= */
+// ============================================================
+// APPLICATION DM HANDLER
+// ============================================================
 
-async function handleApplicationDM(message) {
+async function handleApplicationDM(
+  message
+) {
   if (message.author.bot) return;
 
   const session =
@@ -790,7 +1134,7 @@ async function handleApplicationDM(message) {
 
   if (
     answer.toLowerCase() ===
-    "cancel"
+    'cancel'
   ) {
     appSessions.delete(
       message.author.id
@@ -799,8 +1143,8 @@ async function handleApplicationDM(message) {
     await message.channel.send({
       embeds: [
         embed(
-          "❌ Application Cancelled",
-          "Your application has been cancelled. You can start a new one from the server whenever you are ready.",
+          '❌ Application Cancelled',
+          'Your application has been cancelled. You can start a new one from the server whenever you are ready.',
           0xed4245
         )
       ]
@@ -810,6 +1154,7 @@ async function handleApplicationDM(message) {
   }
 
   session.answers.push(answer);
+
   session.questionIndex++;
 
   await message.channel.send({
@@ -817,7 +1162,7 @@ async function handleApplicationDM(message) {
       new EmbedBuilder()
         .setColor(0x57f287)
         .setDescription(
-          `✅ **Answer ${session.questionIndex}/15 saved!**`
+          `✅ **Answer ${session.questionIndex}/${APPS[session.type].q.length} saved!**`
         )
     ]
   });
@@ -828,213 +1173,65 @@ async function handleApplicationDM(message) {
   );
 }
 
-/* =========================================================
-   APPLICATION PANEL
-========================================================= */
+// ============================================================
+// APPLICATION PANEL
+// ============================================================
 
-async function sendApplicationPanel(interaction) {
+async function sendApplicationPanel(
+  interaction
+) {
   const panel = new EmbedBuilder()
     .setColor(0x7c5cff)
-    .setTitle("📋 TVB Applications")
+    .setTitle('📋 TVB Applications')
     .setDescription(
       [
-        "# Join the Team!",
-        "",
-        "Want to become part of the TVB team?",
-        "",
-        "Choose the application that matches the position you want.",
-        "",
-        "🧱 **Builder Application**",
-        "Help create amazing builds and projects.",
-        "",
-        "🛡️ **Staff Application**",
-        "Help moderate and support the community.",
-        "",
-        "━━━━━━━━━━━━━━━━━━━━",
-        "📨 **How it works**",
-        "",
-        "After selecting an application, I will DM you **15 questions**, one at a time.",
-        "",
-        "⚠️ Make sure your Discord DMs are enabled.",
-        "",
-        "Select an application below to begin."
-      ].join("\n")
+        '# Join the Team!',
+        '',
+        'Want to become part of the TVB team?',
+        '',
+        'Choose the application that matches the position you want.',
+        '',
+        '🧱 **Builder Application**',
+        'Help create amazing builds and projects.',
+        '',
+        '🛡️ **Staff Application**',
+        'Help moderate and support the community.',
+        '',
+        '━━━━━━━━━━━━━━━━━━━━',
+        '📨 **How it works**',
+        '',
+        'After selecting an application, I will DM you **15 questions**, one at a time.',
+        '',
+        '⚠️ Make sure your Discord DMs are enabled.',
+        '',
+        'Select an application below to begin.'
+      ].join('\n')
     )
     .setFooter({
-      text: "TVB Assistant • Applications"
+      text: 'TVB Assistant • Applications'
     })
     .setTimestamp();
 
   await interaction.channel.send({
-    embeds: [panel],
-    components: [appMenu()]
+    embeds: [
+      panel
+    ],
+
+    components: [
+      appMenu()
+    ]
   });
 
   return interaction.reply({
     content:
-      "✅ Application panel posted!",
+      '✅ Application panel posted!',
     ephemeral: true
   });
 }
 
-/* =========================================================
-   APPLICATION REVIEW
-========================================================= */
-
-async function reviewApplication(
-  interaction,
-  action,
-  type,
-  userId
-) {
-  if (!manager(interaction)) {
-    return interaction.reply({
-      content:
-        "❌ You need Manage Server or Manage Roles to review applications.",
-      ephemeral: true
-    });
-  }
-
-  const guild =
-    interaction.guild;
-
-  let member;
-
-  try {
-    member =
-      await guild.members.fetch(
-        userId
-      );
-  } catch {
-    return interaction.reply({
-      content:
-        "❌ I couldn't find that member. They may have left the server.",
-      ephemeral: true
-    });
-  }
-
-  const cfg =
-    guildConfig(guild.id);
-
-  const roles = cfg.roleNames;
-
-  let roleNames = [];
-
-  if (type === "staff") {
-    if (action === "accept") {
-      roleNames = [
-        roles.staffTeam,
-        roles.helper
-      ];
-    }
-
-    if (action === "blacklist") {
-      roleNames = [
-        roles.staffBlacklist
-      ];
-    }
-  }
-
-  if (type === "builder") {
-    if (action === "accept") {
-      roleNames = [
-        roles.builder
-      ];
-    }
-
-    if (action === "blacklist") {
-      roleNames = [
-        roles.builderBlacklist
-      ];
-    }
-  }
-
-  try {
-    for (const roleName of roleNames) {
-      const role =
-        findRole(
-          guild,
-          roleName
-        );
-
-      if (!role) {
-        return interaction.reply({
-          content:
-            `❌ I couldn't find the role **${roleName}**. Create it first or rename it in the bot configuration.`,
-          ephemeral: true
-        });
-      }
-
-      if (
-        role.position >=
-        guild.members.me.roles.highest.position
-      ) {
-        return interaction.reply({
-          content:
-            `❌ My bot role must be above **${role.name}**.`,
-          ephemeral: true
-        });
-      }
-
-      await member.roles.add(
-        role,
-        `TVB Assistant application ${action}`
-      );
-    }
-
-    const actionText =
-      action === "accept"
-        ? "Accepted"
-        : action === "deny"
-          ? "Denied"
-          : "Blacklisted";
-
-    const actionEmoji =
-      action === "accept"
-        ? "✅"
-        : action === "deny"
-          ? "❌"
-          : "🚫";
-
-    await interaction.update({
-      embeds: [
-        embed(
-          `${actionEmoji} Application ${actionText}`,
-          [
-            `**Applicant:** ${member}`,
-            `**Application:** ${APPS[type].label}`,
-            `**Reviewed by:** ${interaction.user}`,
-            "",
-            `This application has been **${actionText.toLowerCase()}**.`
-          ].join("\n"),
-          action === "accept"
-            ? 0x57f287
-            : action === "deny"
-              ? 0xed4245
-              : 0x2b2d31
-        )
-      ],
-      components: []
-    });
-
-    return;
-  } catch (error) {
-    console.error(
-      "Application review error:",
-      error
-    );
-
-    return interaction.reply({
-      content:
-        "❌ I couldn't update the applicant's roles. Check my permissions and make sure my bot role is above the roles.",
-      ephemeral: true
-    });
-  }
-}
-
-/* =========================================================
-   ROLE BUTTONS
-========================================================= */
+// ============================================================
+// EMOJI
+// ============================================================
 
 function parseEmoji(input) {
   if (!input) return null;
@@ -1047,7 +1244,8 @@ function parseEmoji(input) {
     return {
       name: match[1],
       id: match[2],
-      animated: input.startsWith("<a:")
+      animated:
+        input.startsWith('<a:')
     };
   }
 
@@ -1062,6 +1260,10 @@ function parseEmoji(input) {
   return null;
 }
 
+// ============================================================
+// BUTTON ROLES
+// ============================================================
+
 function buildRoleButton(
   role,
   emoji
@@ -1071,9 +1273,7 @@ function buildRoleButton(
       .setCustomId(
         `role-${role.id}`
       )
-      .setLabel(
-        role.name.slice(0, 80)
-      )
+      .setLabel(role.name)
       .setStyle(
         ButtonStyle.Secondary
       );
@@ -1083,14 +1283,15 @@ function buildRoleButton(
 
   if (parsed) {
     if (
-      typeof parsed === "string"
+      typeof parsed === 'string'
     ) {
       button.setEmoji(parsed);
     } else {
       button.setEmoji({
         name: parsed.name,
         id: parsed.id,
-        animated: parsed.animated
+        animated:
+          parsed.animated
       });
     }
   }
@@ -1109,12 +1310,13 @@ async function sendButtonRolePanel(
   if (!cfg.buttonRoles.length) {
     return interaction.reply({
       content:
-        "❌ No button roles have been configured yet.\n\nUse `/buttonrole add` first.",
+        '❌ No button roles have been configured yet.\n\nUse `/buttonrole add` first.',
       ephemeral: true
     });
   }
 
   const rows = [];
+
   let row =
     new ActionRowBuilder();
 
@@ -1150,34 +1352,37 @@ async function sendButtonRolePanel(
     rows.push(row);
   }
 
-  const panel =
-    new EmbedBuilder()
-      .setColor(0x7c5cff)
-      .setTitle(
-        "🔘 TVB Role Selection"
-      )
-      .setDescription(
-        [
-          "Choose the roles you want.",
-          "",
-          "Click a button to **add or remove** a role.",
-          "",
-          "✨ You can change your roles whenever you want."
-        ].join("\n")
-      )
-      .setFooter({
-        text:
-          "TVB Assistant • Button Roles"
-      });
+  const panel = new EmbedBuilder()
+    .setColor(0x7c5cff)
+    .setTitle(
+      '🔘 TVB Role Selection'
+    )
+    .setDescription(
+      [
+        'Choose the roles you want.',
+        '',
+        'Click a button to **add or remove** a role.',
+        '',
+        '✨ You can change your roles whenever you want.'
+      ].join('\n')
+    )
+    .setFooter({
+      text:
+        'TVB Assistant • Button Roles'
+    });
 
   await interaction.channel.send({
-    embeds: [panel],
-    components: rows
+    embeds: [
+      panel
+    ],
+
+    components:
+      rows
   });
 
   return interaction.reply({
     content:
-      "✅ Button-role panel posted!",
+      '✅ Button-role panel posted!',
     ephemeral: true
   });
 }
@@ -1187,8 +1392,8 @@ async function toggleButtonRole(
 ) {
   const roleId =
     interaction.customId.replace(
-      "role-",
-      ""
+      'role-',
+      ''
     );
 
   const role =
@@ -1199,7 +1404,7 @@ async function toggleButtonRole(
   if (!role) {
     return interaction.reply({
       content:
-        "❌ That role no longer exists.",
+        '❌ That role no longer exists.',
       ephemeral: true
     });
   }
@@ -1245,9 +1450,10 @@ async function toggleButtonRole(
         `➕ Added **${role.name}** to you!`,
       ephemeral: true
     });
+
   } catch (error) {
     console.error(
-      "Button role error:",
+      'Button role error:',
       error
     );
 
@@ -1259,303 +1465,218 @@ async function toggleButtonRole(
   }
 }
 
-/* =========================================================
-   TICKET PANEL
-========================================================= */
+// ============================================================
+// TEAM ACTION SYSTEM
+// ============================================================
 
-async function sendTicketPanel(interaction) {
-  const panel =
-    new EmbedBuilder()
-      .setColor(0x7c5cff)
-      .setTitle(
-        "🎫 TVB Support Center"
-      )
-      .setDescription(
-        [
-          "# Need some help?",
-          "",
-          "Welcome to the **TVB Support Center**!",
-          "",
-          "Select the category below that best matches your issue.",
-          "",
-          "💬 **General Support**",
-          "Questions, bugs, help, or anything else.",
-          "",
-          "🛒 **Purchase Support**",
-          "Purchases, payments, orders, or missing items.",
-          "",
-          "🚨 **Player Report**",
-          "Report cheating or rule breaking.",
-          "",
-          "🛡️ **Staff Report**",
-          "Report a concern involving staff.",
-          "",
-          "━━━━━━━━━━━━━━━━━━━━",
-          "🔒 **Tickets are private.**",
-          "",
-          "Select an option below to get started."
-        ].join("\n")
-      )
-      .setFooter({
-        text:
-          "TVB Assistant • Support Center"
-      })
-      .setTimestamp();
-
-  await interaction.channel.send({
-    embeds: [panel],
-    components: [ticketMenu()]
-  });
-
-  return interaction.reply({
-    content:
-      "✅ Ticket panel posted!",
-    ephemeral: true
-  });
-}
-
-/* =========================================================
-   TICKET MODAL SUBMISSION
-========================================================= */
-
-async function handleTicketModal(
-  interaction
+function teamActionTitle(
+  team,
+  action
 ) {
-  const parts =
-    interaction.customId.split("-");
+  const titles = {
+    hire: 'Hired',
+    fire: 'Fired',
+    promote: 'Promoted',
+    demote: 'Demoted'
+  };
 
-  const type =
-    parts[2];
+  const title =
+    titles[action] || action;
 
-  const channelId =
-    parts[3];
-
-  const session =
-    ticketSessions.get(
-      channelId
-    );
-
-  if (!session) {
-    return interaction.reply({
-      content:
-        "❌ This ticket session has expired.",
-      ephemeral: true
-    });
-  }
-
-  const channel =
-    interaction.guild.channels.cache.get(
-      channelId
-    );
-
-  if (!channel) {
-    return interaction.reply({
-      content:
-        "❌ The ticket channel no longer exists.",
-      ephemeral: true
-    });
-  }
-
-  const ticket =
-    TICKETS[type];
-
-  const answers = [];
-
-  for (
-    let i = 0;
-    i < ticket.questions.length;
-    i++
-  ) {
-    answers.push(
-      interaction.fields.getTextInputValue(
-        `question-${i}`
-      )
-    );
-  }
-
-  ticketSessions.set(
-    channelId,
-    {
-      ...session,
-      answers
-    }
-  );
-
-  const cfg =
-    guildConfig(
-      interaction.guild.id
-    );
-
-  const staffRole =
-    cfg.ticketStaffRole
-      ? interaction.guild.roles.cache.get(
-          cfg.ticketStaffRole
-        )
-      : null;
-
-  const lines = [];
-
-  for (
-    let i = 0;
-    i < ticket.questions.length;
-    i++
-  ) {
-    lines.push(
-      `**${i + 1}. ${ticket.questions[i]}**`,
-      `> ${answers[i]}`,
-      ""
-    );
-  }
-
-  await channel.send({
-    content:
-      `${interaction.member}${staffRole ? ` ${staffRole}` : ""}`,
-    embeds: [
-      embed(
-        `${ticket.emoji} ${ticket.label}`,
-        [
-          `**Ticket created by:** ${interaction.member}`,
-          "",
-          ...lines,
-          "━━━━━━━━━━━━━━━━━━━━",
-          "A staff member can now assist you."
-        ].join("\n")
-      )
-    ],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(
-            "ticket-close"
-          )
-          .setLabel(
-            "Close Ticket"
-          )
-          .setEmoji("🔒")
-          .setStyle(
-            ButtonStyle.Danger
-          )
-      )
-    ]
-  });
-
-  return interaction.reply({
-    content:
-      `✅ Your ticket has been created: ${channel}`,
-    ephemeral: true
-  });
+  return team === 'staff'
+    ? `🛡️ [${title}]`
+    : `🧱 [${title}]`;
 }
 
-/* =========================================================
-   CLOSE TICKET
-========================================================= */
-
-async function closeTicket(interaction) {
-  const channel =
-    interaction.channel;
-
-  const session =
-    ticketSessions.get(
-      channel.id
-    );
-
-  if (!session) {
+async function executeTeamAction(
+  interaction,
+  team,
+  action
+) {
+  if (!manager(interaction)) {
     return interaction.reply({
       content:
-        "⚠️ This isn't an active TVB ticket.",
+        '❌ You need Manage Server or Manage Roles to use this command.',
       ephemeral: true
     });
   }
 
-  const cfg =
-    guildConfig(
-      interaction.guild.id
+  const member =
+    interaction.options.getMember(
+      'member'
     );
 
-  const staffRole =
-    cfg.ticketStaffRole
-      ? interaction.guild.roles.cache.get(
-          cfg.ticketStaffRole
-        )
-      : null;
-
-  const isStaff =
-    staffRole &&
-    interaction.member.roles.cache.has(
-      staffRole.id
+  const fromRole =
+    interaction.options.getRole(
+      'fromrole'
     );
+
+  const toRole =
+    interaction.options.getRole(
+      'torole'
+    );
+
+  const message =
+    interaction.options.getString(
+      'message'
+    );
+
+  if (!member) {
+    return interaction.reply({
+      content:
+        '❌ I could not find that member.',
+      ephemeral: true
+    });
+  }
+
+  if (!fromRole || !toRole) {
+    return interaction.reply({
+      content:
+        '❌ Both the current role and new role are required.',
+      ephemeral: true
+    });
+  }
 
   if (
-    session.userId !==
-      interaction.user.id &&
-    !isStaff &&
-    !moderator(interaction)
+    member.user.bot
   ) {
     return interaction.reply({
       content:
-        "❌ Only the ticket creator or ticket staff can close this ticket.",
+        '❌ You cannot use team actions on bots.',
       ephemeral: true
     });
   }
 
-  await interaction.reply({
-    content:
-      "🔒 Closing this ticket in 5 seconds..."
-  });
+  const botMember =
+    interaction.guild.members.me;
 
-  ticketSessions.delete(
-    channel.id
-  );
+  if (!botMember) {
+    return interaction.reply({
+      content:
+        '❌ I could not determine my bot member.',
+      ephemeral: true
+    });
+  }
 
-  setTimeout(
-    async () => {
-      try {
-        await channel.delete(
-          "TVB Assistant ticket closed"
+  if (
+    toRole.position >=
+    botMember.roles.highest.position
+  ) {
+    return interaction.reply({
+      content:
+        '❌ My bot role must be above the new role.',
+      ephemeral: true
+    });
+  }
+
+  if (
+    fromRole.position >=
+    interaction.member.roles.highest.position &&
+    !interaction.member.permissions.has(
+      PermissionsBitField.Flags.Administrator
+    )
+  ) {
+    return interaction.reply({
+      content:
+        '❌ You cannot manage the current role because it is equal to or above your highest role.',
+      ephemeral: true
+    });
+  }
+
+  try {
+    if (
+      member.roles.cache.has(
+        fromRole.id
+      )
+    ) {
+      await member.roles.remove(
+        fromRole
+      );
+    }
+
+    await member.roles.add(
+      toRole
+    );
+
+    const formattedMessage =
+      message
+        .replace(
+          /\{user\}/gi,
+          `${member}`
+        )
+        .replace(
+          /\{server\}/gi,
+          interaction.guild.name
+        )
+        .replace(
+          /\{username\}/gi,
+          member.user.username
+        )
+        .replace(
+          /\{from\}/gi,
+          `${fromRole}`
+        )
+        .replace(
+          /\{to\}/gi,
+          `${toRole}`
         );
-      } catch (error) {
-        console.error(
-          "Could not delete ticket:",
-          error
-        );
-      }
-    },
-    5000
-  );
+
+    const output = [
+      `${teamActionTitle(
+        team,
+        action
+      )} - ${member} ${fromRole} --> ${toRole}`,
+      '',
+      `-# ${formattedMessage || 'Welcome to your new position!'}`
+    ].join('\n');
+
+    await interaction.channel.send({
+      content: output
+    });
+
+    return interaction.reply({
+      content:
+        `✅ ${action} action completed for ${member}.`,
+      ephemeral: true
+    });
+
+  } catch (error) {
+    console.error(
+      `${team} ${action} error:`,
+      error
+    );
+
+    return interaction.reply({
+      content:
+        '❌ I could not complete that action. Check my role hierarchy and permissions.',
+      ephemeral: true
+    });
+  }
 }
 
-/* =========================================================
-   UPDATE SYSTEM
-========================================================= */
+// ============================================================
+// UPDATE SYSTEM
+// ============================================================
 
-function updateEmbed(
+async function updateEmbed(
   type,
   title,
   description,
   extra
 ) {
-  const typeText =
-    type
-      ? type.toUpperCase()
-      : "UPDATE";
-
-  return new EmbedBuilder()
-    .setColor(0x7c5cff)
-    .setDescription(
-      [
-        `**${typeText}** • **${title}**`,
-        "",
-        description,
-        extra
-          ? `\n${extra}`
-          : ""
-      ].join("\n")
-    )
-    .setFooter({
-      text:
-        "TVB • Updates"
-    })
-    .setTimestamp();
+  return [
+    `## ${title}`,
+    '',
+    `**${type}**`,
+    '',
+    description,
+    '',
+    extra
+      ? `-# ${extra}`
+      : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 async function sendUpdate(
@@ -1563,94 +1684,88 @@ async function sendUpdate(
 ) {
   const type =
     interaction.options.getString(
-      "type"
+      'type'
     );
 
   const title =
     interaction.options.getString(
-      "title"
+      'title'
     );
 
   const description =
     interaction.options.getString(
-      "description"
+      'description'
     );
 
   const extra =
     interaction.options.getString(
-      "extra"
-    );
-
-  const cfg =
-    guildConfig(
-      interaction.guild.id
+      'extra'
     );
 
   const updatesRole =
-    interaction.guild.roles.cache.find(
-      role =>
-        role.name.toLowerCase() ===
-        "updates"
+    findRoleByNames(
+      interaction.guild,
+      [
+        ROLE_NAMES.updates
+      ]
     );
 
-  const ping =
+  const rolePing =
     updatesRole
       ? `${updatesRole}`
-      : "@updates";
+      : '@updates';
 
-  const hiddenPing =
-    `||${ping}||`;
+  const text =
+    await updateEmbed(
+      type,
+      title,
+      description,
+      extra
+    );
 
   await interaction.channel.send({
     content:
-      hiddenPing,
-    embeds: [
-      updateEmbed(
-        type,
-        title,
-        description,
-        extra
-      )
-    ]
+      `||${rolePing} ${text}||`
   });
 
   return interaction.reply({
     content:
-      "✅ Update posted!",
+      '✅ Update posted!',
     ephemeral: true
   });
 }
 
-/* =========================================================
-   STAFF / BUILDER MANAGEMENT
-========================================================= */
+// ============================================================
+// APPLICATION DECISION HANDLER
+// ============================================================
 
-async function performStaffAction(
-  interaction,
-  action
+async function handleApplicationDecision(
+  interaction
 ) {
+  const parts =
+    interaction.customId.split('-');
+
+  const action =
+    parts[1];
+
+  const type =
+    parts[2];
+
+  const userId =
+    parts[3];
+
+  if (
+    !['accept', 'deny', 'blacklist'].includes(
+      action
+    )
+  ) {
+    return;
+  }
+
   if (!manager(interaction)) {
     return interaction.reply({
       content:
-        "❌ You need Manage Server or Manage Roles to use this command.",
-      ephemeral: true
-    });
-  }
-
-  const target =
-    interaction.options.getUser(
-      "user"
-    );
-
-  const message =
-    interaction.options.getString(
-      "message"
-    );
-
-  if (!target) {
-    return interaction.reply({
-      content:
-        "❌ Please provide a user.",
+        '❌ You need Manage Server or Manage Roles to review applications.',
       ephemeral: true
     });
   }
@@ -1660,385 +1775,366 @@ async function performStaffAction(
   try {
     member =
       await interaction.guild.members.fetch(
-        target.id
+        userId
       );
   } catch {
     return interaction.reply({
       content:
-        "❌ That user isn't in the server.",
+        '❌ That applicant is no longer in the server.',
       ephemeral: true
     });
   }
 
-  const cfg =
-    guildConfig(
-      interaction.guild.id
-    );
+  const botMember =
+    interaction.guild.members.me;
 
-  const roleNames =
-    cfg.roleNames;
-
-  let roleName;
-
-  if (action === "hire") {
-    roleName =
-      roleNames.staffTeam;
-  }
-
-  if (action === "fire") {
-    roleName =
-      roleNames.staffTeam;
-  }
-
-  if (action === "promote") {
-    roleName =
-      roleNames.staffTeam;
-  }
-
-  if (action === "demote") {
-    roleName =
-      roleNames.helper;
-  }
-
-  const role =
-    findRole(
-      interaction.guild,
-      roleName
-    );
-
-  if (!role) {
+  if (!botMember) {
     return interaction.reply({
       content:
-        `❌ I couldn't find the role **${roleName}**.`,
+        '❌ Could not find the bot member.',
       ephemeral: true
     });
+  }
+
+  let rolesToAdd = [];
+
+  if (action === 'accept') {
+    if (type === 'staff') {
+      const staffTeam =
+        findRoleByNames(
+          interaction.guild,
+          [
+            ROLE_NAMES.staffTeam
+          ]
+        );
+
+      const helper =
+        findRoleByNames(
+          interaction.guild,
+          [
+            ROLE_NAMES.helper
+          ]
+        );
+
+      if (staffTeam) {
+        rolesToAdd.push(
+          staffTeam
+        );
+      }
+
+      if (helper) {
+        rolesToAdd.push(
+          helper
+        );
+      }
+    }
+
+    if (type === 'builder') {
+      const builder =
+        findRoleByNames(
+          interaction.guild,
+          [
+            ROLE_NAMES.builder,
+            'biluder'
+          ]
+        );
+
+      if (builder) {
+        rolesToAdd.push(
+          builder
+        );
+      }
+    }
+  }
+
+  if (action === 'blacklist') {
+    const blacklist =
+      type === 'staff'
+        ? findRoleByNames(
+            interaction.guild,
+            [
+              ROLE_NAMES.staffBlacklist
+            ]
+          )
+        : findRoleByNames(
+            interaction.guild,
+            [
+              ROLE_NAMES.builderBlacklist
+            ]
+          );
+
+    if (blacklist) {
+      rolesToAdd.push(
+        blacklist
+      );
+    }
+  }
+
+  for (const role of rolesToAdd) {
+    if (
+      role.position >=
+      botMember.roles.highest.position
+    ) {
+      return interaction.reply({
+        content:
+          `❌ I cannot manage **${role.name}** because my bot role must be above it.`,
+        ephemeral: true
+      });
+    }
   }
 
   try {
     if (
-      action === "hire" ||
-      action === "promote"
+      action === 'deny'
     ) {
-      await member.roles.add(
-        role,
-        `TVB Assistant ${action}`
-      );
+      await interaction.update({
+        content:
+          `❌ Application denied for ${member}.`,
+
+        components: [],
+
+        embeds:
+          interaction.message.embeds
+      });
+
+      return;
     }
 
     if (
-      action === "fire" ||
-      action === "demote"
+      action === 'blacklist'
     ) {
-      await member.roles.remove(
-        role,
-        `TVB Assistant ${action}`
+      await member.roles.add(
+        rolesToAdd
       );
+
+      await interaction.update({
+        content:
+          `🚫 ${member} has been blacklisted from the ${type} application process.`,
+
+        components: [],
+
+        embeds:
+          interaction.message.embeds
+      });
+
+      return;
     }
 
-    const status =
-      action === "hire"
-        ? "Hired"
-        : action === "fire"
-          ? "Fired"
-          : action === "promote"
-            ? "Promoted"
-            : "Demoted";
-
-    const fromRole =
-      action === "promote"
-        ? "Helper"
-        : action === "demote"
-          ? "Staff"
-          : "Member";
-
-    const toRole =
-      action === "fire"
-        ? "Member"
-        : action === "demote"
-          ? "Helper"
-          : role.name;
-
-    const customMessage =
-      replaceVariables(
-        message ||
-          "Welcome to the team!",
-        target,
-        interaction.guild
+    if (
+      action === 'accept'
+    ) {
+      await member.roles.add(
+        rolesToAdd
       );
 
-    await interaction.channel.send({
-      content:
-        `${status === "Hired" || status === "Promoted" ? "🟢" : "🔴"} \`[${status}]\` - ${target}  ${fromRole} --> @${toRole}\n\n-# ${customMessage}`
-    });
+      await interaction.update({
+        content:
+          `✅ ${member} has been accepted for the ${type} team.`,
 
-    return interaction.reply({
-      content:
-        `✅ ${status} ${target}.`,
-      ephemeral: true
-    });
+        components: [],
+
+        embeds:
+          interaction.message.embeds
+      });
+
+      return;
+    }
+
   } catch (error) {
     console.error(
-      "Staff action error:",
+      'Application decision error:',
       error
     );
 
     return interaction.reply({
       content:
-        "❌ I couldn't update that user's roles. Check my bot permissions and role hierarchy.",
+        '❌ I could not update the applicant roles. Check my permissions and role hierarchy.',
       ephemeral: true
     });
   }
 }
 
-async function performBuilderAction(
-  interaction,
-  action
-) {
-  if (!manager(interaction)) {
-    return interaction.reply({
-      content:
-        "❌ You need Manage Server or Manage Roles to use this command.",
-      ephemeral: true
-    });
-  }
-
-  const target =
-    interaction.options.getUser(
-      "user"
-    );
-
-  const message =
-    interaction.options.getString(
-      "message"
-    );
-
-  let member;
-
-  try {
-    member =
-      await interaction.guild.members.fetch(
-        target.id
-      );
-  } catch {
-    return interaction.reply({
-      content:
-        "❌ That user isn't in the server.",
-      ephemeral: true
-    });
-  }
-
-  const cfg =
-    guildConfig(
-      interaction.guild.id
-    );
-
-  const role =
-    findRole(
-      interaction.guild,
-      cfg.roleNames.builder
-    );
-
-  if (!role) {
-    return interaction.reply({
-      content:
-        `❌ I couldn't find the role **${cfg.roleNames.builder}**.`,
-      ephemeral: true
-    });
-  }
-
-  try {
-    if (action === "hire") {
-      await member.roles.add(
-        role,
-        "TVB Assistant builder hire"
-      );
-    } else {
-      await member.roles.remove(
-        role,
-        "TVB Assistant builder fire"
-      );
-    }
-
-    const status =
-      action === "hire"
-        ? "Hired"
-        : "Fired";
-
-    const customMessage =
-      replaceVariables(
-        message ||
-          "Welcome to the building team!",
-        target,
-        interaction.guild
-      );
-
-    await interaction.channel.send({
-      content:
-        `${action === "hire" ? "🟢" : "🔴"} \`[${status}]\` - ${target}  Member --> @${role.name}\n\n-# ${customMessage}`
-    });
-
-    return interaction.reply({
-      content:
-        `✅ ${status} ${target} as a builder.`,
-      ephemeral: true
-    });
-  } catch (error) {
-    console.error(
-      "Builder action error:",
-      error
-    );
-
-    return interaction.reply({
-      content:
-        "❌ I couldn't update that user's builder role.",
-      ephemeral: true
-    });
-  }
-}
-
-/* =========================================================
-   SLASH COMMANDS
-========================================================= */
+// ============================================================
+// COMMAND DEFINITIONS
+// ============================================================
 
 const commands = [
-  new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription(
-      "Check if TVB Assistant is online."
-    ),
+
+  // ----------------------------------------------------------
+  // PING
+  // ----------------------------------------------------------
 
   new SlashCommandBuilder()
-    .setName("ticketpanel")
+    .setName('ping')
     .setDescription(
-      "Post the TVB ticket panel."
+      'Check if TVB Assistant is online.'
     ),
 
-  new SlashCommandBuilder()
-    .setName("applicationpanel")
-    .setDescription(
-      "Post the TVB application panel."
-    ),
+  // ----------------------------------------------------------
+  // TICKET PANEL
+  // ----------------------------------------------------------
 
   new SlashCommandBuilder()
-    .setName("buttonrole")
+    .setName('ticketpanel')
     .setDescription(
-      "Manage button roles."
+      'Post the TVB ticket panel.'
+    ),
+
+  // ----------------------------------------------------------
+  // APPLICATION PANEL
+  // ----------------------------------------------------------
+
+  new SlashCommandBuilder()
+    .setName('applicationpanel')
+    .setDescription(
+      'Post the TVB application panel.'
+    ),
+
+  // ----------------------------------------------------------
+  // BUTTON ROLES
+  // ----------------------------------------------------------
+
+  new SlashCommandBuilder()
+    .setName('buttonrole')
+    .setDescription(
+      'Manage button roles.'
     )
+
     .addSubcommand(sub =>
       sub
-        .setName("add")
+        .setName('add')
         .setDescription(
-          "Add a role to the button panel."
+          'Add a role to the button panel.'
         )
+
         .addRoleOption(option =>
           option
-            .setName("role")
+            .setName('role')
             .setDescription(
-              "The role to give."
+              'The role to give.'
             )
             .setRequired(true)
         )
+
         .addStringOption(option =>
           option
-            .setName("emoji")
+            .setName('emoji')
             .setDescription(
-              "Emoji to display."
+              'Emoji to display.'
             )
+            .setRequired(false)
         )
     )
+
     .addSubcommand(sub =>
       sub
-        .setName("remove")
+        .setName('remove')
         .setDescription(
-          "Remove a role from the panel."
+          'Remove a role from the button panel.'
         )
+
         .addRoleOption(option =>
           option
-            .setName("role")
+            .setName('role')
             .setDescription(
-              "The role to remove."
+              'The role to remove.'
             )
             .setRequired(true)
         )
     )
+
     .addSubcommand(sub =>
       sub
-        .setName("list")
+        .setName('list')
         .setDescription(
-          "List configured button roles."
-        )
-    )
-    .addSubcommand(sub =>
-      sub
-        .setName("panel")
-        .setDescription(
-          "Post the button-role panel."
+          'Show configured button roles.'
         )
     ),
 
+  // ----------------------------------------------------------
+  // WELCOME
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("setwelcome")
+    .setName('setwelcome')
     .setDescription(
-      "Configure the welcome system."
+      'Configure the welcome system.'
     )
+
     .addChannelOption(option =>
       option
-        .setName("channel")
+        .setName('channel')
         .setDescription(
-          "Welcome channel."
+          'Welcome channel.'
         )
         .addChannelTypes(
           ChannelType.GuildText
         )
         .setRequired(true)
     )
+
     .addStringOption(option =>
       option
-        .setName("message")
+        .setName('message')
         .setDescription(
-          "Use {user}, {username}, and {server}."
+          'Use {user}, {username}, and {server}.'
         )
         .setRequired(true)
     ),
 
+  // ----------------------------------------------------------
+  // AUTOROLE
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("setautorole")
+    .setName('setautorole')
     .setDescription(
-      "Set the automatic member role."
+      'Set the automatic member role.'
     )
+
     .addRoleOption(option =>
       option
-        .setName("role")
+        .setName('role')
         .setDescription(
-          "Role new members receive."
+          'Role new members receive.'
         )
         .setRequired(true)
     ),
 
+  // ----------------------------------------------------------
+  // TICKET STAFF
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("setticketstaff")
+    .setName('setticketstaff')
     .setDescription(
-      "Set the ticket staff role."
+      'Set the ticket staff role.'
     )
+
     .addRoleOption(option =>
       option
-        .setName("role")
+        .setName('role')
         .setDescription(
-          "Role that can see tickets."
+          'Role that can see tickets.'
         )
         .setRequired(true)
     ),
 
+  // ----------------------------------------------------------
+  // TICKET CATEGORY
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("setticketcategory")
+    .setName('setticketcategory')
     .setDescription(
-      "Set the ticket category."
+      'Set the ticket category.'
     )
+
     .addChannelOption(option =>
       option
-        .setName("category")
+        .setName('category')
         .setDescription(
-          "Category where tickets are created."
+          'Category where tickets are created.'
         )
         .addChannelTypes(
           ChannelType.GuildCategory
@@ -2046,193 +2142,343 @@ const commands = [
         .setRequired(true)
     ),
 
+  // ----------------------------------------------------------
+  // STAFF COMMAND GROUP
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("staff")
+    .setName('staff')
     .setDescription(
-      "Manage TVB staff."
+      'Manage the TVB staff team.'
     )
+
     .addSubcommand(sub =>
       sub
-        .setName("hire")
+        .setName('hire')
         .setDescription(
-          "Hire a staff member."
+          'Hire a member.'
         )
+
         .addUserOption(option =>
           option
-            .setName("user")
+            .setName('member')
             .setDescription(
-              "User to hire."
+              'Member to hire.'
             )
             .setRequired(true)
         )
-        .addStringOption(option =>
+
+        .addRoleOption(option =>
           option
-            .setName("message")
+            .setName('fromrole')
             .setDescription(
-              "Custom message. Supports {user} and {server}."
-            )
-        )
-    )
-    .addSubcommand(sub =>
-      sub
-        .setName("fire")
-        .setDescription(
-          "Fire a staff member."
-        )
-        .addUserOption(option =>
-          option
-            .setName("user")
-            .setDescription(
-              "User to fire."
+              'Current role.'
             )
             .setRequired(true)
         )
-        .addStringOption(option =>
+
+        .addRoleOption(option =>
           option
-            .setName("message")
+            .setName('torole')
             .setDescription(
-              "Custom message."
-            )
-        )
-    )
-    .addSubcommand(sub =>
-      sub
-        .setName("promote")
-        .setDescription(
-          "Promote a staff member."
-        )
-        .addUserOption(option =>
-          option
-            .setName("user")
-            .setDescription(
-              "User to promote."
+              'New role.'
             )
             .setRequired(true)
         )
+
         .addStringOption(option =>
           option
-            .setName("message")
+            .setName('message')
             .setDescription(
-              "Custom message."
-            )
-        )
-    )
-    .addSubcommand(sub =>
-      sub
-        .setName("demote")
-        .setDescription(
-          "Demote a staff member."
-        )
-        .addUserOption(option =>
-          option
-            .setName("user")
-            .setDescription(
-              "User to demote."
+              'Use {user}, {server}, {username}, {from}, {to}.'
             )
             .setRequired(true)
         )
+    )
+
+    .addSubcommand(sub =>
+      sub
+        .setName('fire')
+        .setDescription(
+          'Remove a member from a staff position.'
+        )
+
+        .addUserOption(option =>
+          option
+            .setName('member')
+            .setDescription(
+              'Member to fire.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('fromrole')
+            .setDescription(
+              'Current role.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('torole')
+            .setDescription(
+              'Role they will receive.'
+            )
+            .setRequired(true)
+        )
+
         .addStringOption(option =>
           option
-            .setName("message")
+            .setName('message')
             .setDescription(
-              "Custom message."
+              'Use {user}, {server}, {username}, {from}, {to}.'
             )
+            .setRequired(true)
+        )
+    )
+
+    .addSubcommand(sub =>
+      sub
+        .setName('promote')
+        .setDescription(
+          'Promote a staff member.'
+        )
+
+        .addUserOption(option =>
+          option
+            .setName('member')
+            .setDescription(
+              'Member to promote.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('fromrole')
+            .setDescription(
+              'Current role.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('torole')
+            .setDescription(
+              'New role.'
+            )
+            .setRequired(true)
+        )
+
+        .addStringOption(option =>
+          option
+            .setName('message')
+            .setDescription(
+              'Use {user}, {server}, {username}, {from}, {to}.'
+            )
+            .setRequired(true)
+        )
+    )
+
+    .addSubcommand(sub =>
+      sub
+        .setName('demote')
+        .setDescription(
+          'Demote a staff member.'
+        )
+
+        .addUserOption(option =>
+          option
+            .setName('member')
+            .setDescription(
+              'Member to demote.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('fromrole')
+            .setDescription(
+              'Current role.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('torole')
+            .setDescription(
+              'New role.'
+            )
+            .setRequired(true)
+        )
+
+        .addStringOption(option =>
+          option
+            .setName('message')
+            .setDescription(
+              'Use {user}, {server}, {username}, {from}, {to}.'
+            )
+            .setRequired(true)
         )
     ),
 
+  // ----------------------------------------------------------
+  // BUILDER COMMAND GROUP
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("builder")
+    .setName('builder')
     .setDescription(
-      "Manage TVB builders."
+      'Manage the TVB builder team.'
     )
+
     .addSubcommand(sub =>
       sub
-        .setName("hire")
+        .setName('hire')
         .setDescription(
-          "Hire a builder."
+          'Hire a builder.'
         )
+
         .addUserOption(option =>
           option
-            .setName("user")
+            .setName('member')
             .setDescription(
-              "User to hire."
+              'Member to hire.'
             )
             .setRequired(true)
         )
-        .addStringOption(option =>
+
+        .addRoleOption(option =>
           option
-            .setName("message")
+            .setName('fromrole')
             .setDescription(
-              "Custom message."
-            )
-        )
-    )
-    .addSubcommand(sub =>
-      sub
-        .setName("fire")
-        .setDescription(
-          "Fire a builder."
-        )
-        .addUserOption(option =>
-          option
-            .setName("user")
-            .setDescription(
-              "User to fire."
+              'Current role.'
             )
             .setRequired(true)
         )
+
+        .addRoleOption(option =>
+          option
+            .setName('torole')
+            .setDescription(
+              'New role.'
+            )
+            .setRequired(true)
+        )
+
         .addStringOption(option =>
           option
-            .setName("message")
+            .setName('message')
             .setDescription(
-              "Custom message."
+              'Use {user}, {server}, {username}, {from}, {to}.'
             )
+            .setRequired(true)
+        )
+    )
+
+    .addSubcommand(sub =>
+      sub
+        .setName('fire')
+        .setDescription(
+          'Remove a builder from their position.'
+        )
+
+        .addUserOption(option =>
+          option
+            .setName('member')
+            .setDescription(
+              'Member to fire.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('fromrole')
+            .setDescription(
+              'Current role.'
+            )
+            .setRequired(true)
+        )
+
+        .addRoleOption(option =>
+          option
+            .setName('torole')
+            .setDescription(
+              'Role they will receive.'
+            )
+            .setRequired(true)
+        )
+
+        .addStringOption(option =>
+          option
+            .setName('message')
+            .setDescription(
+              'Use {user}, {server}, {username}, {from}, {to}.'
+            )
+            .setRequired(true)
         )
     ),
 
+  // ----------------------------------------------------------
+  // UPDATE
+  // ----------------------------------------------------------
+
   new SlashCommandBuilder()
-    .setName("update")
+    .setName('update')
     .setDescription(
-      "Post a detailed TVB update."
+      'Post a detailed TVB update.'
     )
+
     .addStringOption(option =>
       option
-        .setName("type")
+        .setName('type')
         .setDescription(
-          "Update category."
+          'Update type.'
         )
         .setRequired(true)
     )
+
     .addStringOption(option =>
       option
-        .setName("title")
+        .setName('title')
         .setDescription(
-          "Update title."
+          'Update title.'
         )
         .setRequired(true)
     )
+
     .addStringOption(option =>
       option
-        .setName("description")
+        .setName('description')
         .setDescription(
-          "Main update text."
+          'Main update text.'
         )
         .setRequired(true)
     )
+
     .addStringOption(option =>
       option
-        .setName("extra")
+        .setName('extra')
         .setDescription(
-          "Additional information."
+          'Optional extra information.'
         )
+        .setRequired(false)
     )
+
 ].map(command =>
   command.toJSON()
 );
 
-/* =========================================================
-   COMMAND REGISTRATION
-========================================================= */
+// ============================================================
+// REGISTER COMMANDS
+// ============================================================
 
 async function registerCommands(
   guildId
@@ -2240,7 +2486,7 @@ async function registerCommands(
   try {
     const rest =
       new REST({
-        version: "10"
+        version: '10'
       }).setToken(TOKEN);
 
     await rest.put(
@@ -2256,6 +2502,7 @@ async function registerCommands(
     console.log(
       `Registered commands in ${guildId}`
     );
+
   } catch (error) {
     console.error(
       `Could not register commands in ${guildId}:`,
@@ -2264,19 +2511,20 @@ async function registerCommands(
   }
 }
 
-/* =========================================================
-   READY
-========================================================= */
+// ============================================================
+// READY
+// ============================================================
 
 client.once(
-  "ready",
+  'ready',
   async () => {
     console.log(
       `Logged in as ${client.user.tag}`
     );
 
     for (
-      const guild of client.guilds.cache.values()
+      const guild of
+      client.guilds.cache.values()
     ) {
       await registerCommands(
         guild.id
@@ -2289,28 +2537,41 @@ client.once(
   }
 );
 
+// ============================================================
+// NEW SERVER
+// ============================================================
+
 client.on(
-  "guildCreate",
+  'guildCreate',
   async guild => {
-    await registerCommands(
-      guild.id
-    );
+    try {
+      await registerCommands(
+        guild.id
+      );
+    } catch (error) {
+      console.error(
+        `Could not register commands in ${guild.id}:`,
+        error
+      );
+    }
   }
 );
 
-/* =========================================================
-   MEMBER JOIN
-========================================================= */
+// ============================================================
+// MEMBER JOIN
+// ============================================================
 
 client.on(
-  "guildMemberAdd",
+  'guildMemberAdd',
   async member => {
     const cfg =
       guildConfig(
         member.guild.id
       );
 
-    /* AUTOROLE */
+    // ----------------------------
+    // AUTOROLE
+    // ----------------------------
 
     if (cfg.autorole) {
       const role =
@@ -2320,21 +2581,35 @@ client.on(
 
       if (role) {
         try {
-          await member.roles.add(
-            role
-          );
+          const botMember =
+            member.guild.members.me;
+
+          if (
+            botMember &&
+            role.position <
+              botMember.roles.highest.position
+          ) {
+            await member.roles.add(
+              role
+            );
+          }
+
         } catch (error) {
           console.error(
-            "Could not assign autorole:",
+            'Could not assign autorole:',
             error
           );
         }
       }
     }
 
-    /* WELCOME */
+    // ----------------------------
+    // WELCOME
+    // ----------------------------
 
-    if (cfg.welcomeChannel) {
+    if (
+      cfg.welcomeChannel
+    ) {
       const channel =
         member.guild.channels.cache.get(
           cfg.welcomeChannel
@@ -2345,17 +2620,25 @@ client.on(
         channel.isTextBased()
       ) {
         const message =
-          replaceVariables(
-            cfg.welcomeMessage,
-            member.user,
-            member.guild
-          );
+          cfg.welcomeMessage
+            .replace(
+              /\{user\}/gi,
+              `${member}`
+            )
+            .replace(
+              /\{username\}/gi,
+              member.user.username
+            )
+            .replace(
+              /\{server\}/gi,
+              member.guild.name
+            );
 
         const welcomeEmbed =
           new EmbedBuilder()
             .setColor(0x7c5cff)
             .setTitle(
-              "👋 Welcome!"
+              '👋 Welcome!'
             )
             .setDescription(
               message
@@ -2379,7 +2662,7 @@ client.on(
           });
         } catch (error) {
           console.error(
-            "Could not send welcome message:",
+            'Could not send welcome message:',
             error
           );
         }
@@ -2388,15 +2671,16 @@ client.on(
   }
 );
 
-/* =========================================================
-   MESSAGE CREATE
-========================================================= */
+// ============================================================
+// MESSAGE CREATE
+// ============================================================
 
 client.on(
-  "messageCreate",
+  'messageCreate',
   async message => {
-    if (message.author.bot)
+    if (message.author.bot) {
       return;
+    }
 
     if (!message.guild) {
       await handleApplicationDM(
@@ -2406,64 +2690,50 @@ client.on(
   }
 );
 
-/* =========================================================
-   INTERACTIONS
-========================================================= */
+// ============================================================
+// INTERACTIONS
+// ============================================================
 
 client.on(
-  "interactionCreate",
+  'interactionCreate',
   async interaction => {
     try {
-      /* =====================================================
-         MODALS
-      ===================================================== */
 
-      if (
-        interaction.isModalSubmit()
-      ) {
-        if (
-          interaction.customId.startsWith(
-            "ticket-modal-"
-          )
-        ) {
-          return handleTicketModal(
-            interaction
-          );
-        }
-      }
-
-      /* =====================================================
-         SLASH COMMANDS
-      ===================================================== */
+      // ======================================================
+      // SLASH COMMANDS
+      // ======================================================
 
       if (
         interaction.isChatInputCommand()
       ) {
-        /* PING */
+
+        // ----------------------------------------------------
+        // PING
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "ping"
+          'ping'
         ) {
           return interaction.reply({
             content:
-              "🏓 Pong! TVB Assistant is online.",
+              '🏓 Pong! TVB Assistant is online.',
             ephemeral: true
           });
         }
 
-        /* TICKET PANEL */
+        // ----------------------------------------------------
+        // TICKET PANEL
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "ticketpanel"
+          'ticketpanel'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -2473,18 +2743,18 @@ client.on(
           );
         }
 
-        /* APPLICATION PANEL */
+        // ----------------------------------------------------
+        // APPLICATION PANEL
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "applicationpanel"
+          'applicationpanel'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -2494,18 +2764,18 @@ client.on(
           );
         }
 
-        /* BUTTON ROLE */
+        // ----------------------------------------------------
+        // BUTTON ROLE
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "buttonrole"
+          'buttonrole'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -2518,48 +2788,40 @@ client.on(
               interaction.guild.id
             );
 
-          if (
-            subcommand ===
-            "panel"
-          ) {
-            return sendButtonRolePanel(
-              interaction
-            );
-          }
+          // ADD
 
           if (
-            subcommand ===
-            "add"
+            subcommand === 'add'
           ) {
             const role =
               interaction.options.getRole(
-                "role"
+                'role'
               );
 
             const emoji =
               interaction.options.getString(
-                "emoji"
-              ) || "🔘";
+                'emoji'
+              ) || '🔘';
 
             const botMember =
               interaction.guild.members.me;
 
             if (
-              !botMember ||
+              botMember &&
               role.position >=
                 botMember.roles.highest.position
             ) {
               return interaction.reply({
                 content:
-                  "❌ My bot role must be above that role.",
+                  '❌ My bot role must be above that role.',
                 ephemeral: true
               });
             }
 
             const existing =
               cfg.buttonRoles.find(
-                r =>
-                  r.roleId ===
+                item =>
+                  item.roleId ===
                   role.id
               );
 
@@ -2568,8 +2830,7 @@ client.on(
                 emoji;
             } else {
               cfg.buttonRoles.push({
-                roleId:
-                  role.id,
+                roleId: role.id,
                 emoji
               });
             }
@@ -2583,19 +2844,20 @@ client.on(
             });
           }
 
+          // REMOVE
+
           if (
-            subcommand ===
-            "remove"
+            subcommand === 'remove'
           ) {
             const role =
               interaction.options.getRole(
-                "role"
+                'role'
               );
 
             cfg.buttonRoles =
               cfg.buttonRoles.filter(
-                r =>
-                  r.roleId !==
+                item =>
+                  item.roleId !==
                   role.id
               );
 
@@ -2608,16 +2870,17 @@ client.on(
             });
           }
 
+          // LIST
+
           if (
-            subcommand ===
-            "list"
+            subcommand === 'list'
           ) {
             if (
               !cfg.buttonRoles.length
             ) {
               return interaction.reply({
                 content:
-                  "There are currently no button roles configured.",
+                  'There are currently no button roles configured.',
                 ephemeral: true
               });
             }
@@ -2635,40 +2898,40 @@ client.on(
                     : null;
                 })
                 .filter(Boolean)
-                .join("\n");
+                .join('\n');
 
             return interaction.reply({
               content:
-                `### 🔘 Button Roles\n\n${list || "None"}`,
+                `### 🔘 Button Roles\n\n${list || 'None'}`,
               ephemeral: true
             });
           }
         }
 
-        /* WELCOME */
+        // ----------------------------------------------------
+        // WELCOME
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "setwelcome"
+          'setwelcome'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
 
           const channel =
             interaction.options.getChannel(
-              "channel"
+              'channel'
             );
 
           const message =
             interaction.options.getString(
-              "message"
+              'message'
             );
 
           const cfg =
@@ -2686,43 +2949,43 @@ client.on(
 
           return interaction.reply({
             content:
-              "✅ Welcome system updated!",
+              '✅ Welcome system updated!',
             ephemeral: true
           });
         }
 
-        /* AUTOROLE */
+        // ----------------------------------------------------
+        // AUTOROLE
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "setautorole"
+          'setautorole'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
 
           const role =
             interaction.options.getRole(
-              "role"
+              'role'
             );
 
           const botMember =
             interaction.guild.members.me;
 
           if (
-            !botMember ||
+            botMember &&
             role.position >=
               botMember.roles.highest.position
           ) {
             return interaction.reply({
               content:
-                "❌ My bot role must be above the autorole.",
+                '❌ My bot role must be above the autorole.',
               ephemeral: true
             });
           }
@@ -2744,25 +3007,25 @@ client.on(
           });
         }
 
-        /* TICKET STAFF */
+        // ----------------------------------------------------
+        // TICKET STAFF
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "setticketstaff"
+          'setticketstaff'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
 
           const role =
             interaction.options.getRole(
-              "role"
+              'role'
             );
 
           const cfg =
@@ -2782,25 +3045,25 @@ client.on(
           });
         }
 
-        /* TICKET CATEGORY */
+        // ----------------------------------------------------
+        // TICKET CATEGORY
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "setticketcategory"
+          'setticketcategory'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
 
           const category =
             interaction.options.getChannel(
-              "category"
+              'category'
             );
 
           const cfg =
@@ -2820,48 +3083,54 @@ client.on(
           });
         }
 
-        /* STAFF COMMAND */
+        // ----------------------------------------------------
+        // STAFF
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "staff"
+          'staff'
         ) {
           const subcommand =
             interaction.options.getSubcommand();
 
-          return performStaffAction(
+          return executeTeamAction(
             interaction,
+            'staff',
             subcommand
           );
         }
 
-        /* BUILDER COMMAND */
+        // ----------------------------------------------------
+        // BUILDER
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "builder"
+          'builder'
         ) {
           const subcommand =
             interaction.options.getSubcommand();
 
-          return performBuilderAction(
+          return executeTeamAction(
             interaction,
+            'builder',
             subcommand
           );
         }
 
-        /* UPDATE */
+        // ----------------------------------------------------
+        // UPDATE
+        // ----------------------------------------------------
 
         if (
           interaction.commandName ===
-          "update"
+          'update'
         ) {
-          if (
-            !manager(interaction)
-          ) {
+          if (!manager(interaction)) {
             return interaction.reply({
               content:
-                "❌ You need Manage Server to use this command.",
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -2872,32 +3141,84 @@ client.on(
         }
       }
 
-      /* =====================================================
-         TICKET SELECT
-      ===================================================== */
+      // ======================================================
+      // TICKET SELECT
+      // ======================================================
 
       if (
         interaction.isStringSelectMenu() &&
         interaction.customId ===
-          "ticket-select"
+          'ticket-select'
       ) {
         const type =
           interaction.values[0];
 
-        return createTicket(
-          interaction,
-          type
+        const ticket =
+          TICKETS[type];
+
+        if (!ticket) {
+          return interaction.reply({
+            content:
+              '❌ Invalid ticket type.',
+            ephemeral: true
+          });
+        }
+
+        return interaction.showModal(
+          ticketModal(type)
         );
       }
 
-      /* =====================================================
-         APPLICATION SELECT
-      ===================================================== */
+      // ======================================================
+      // TICKET MODAL
+      // ======================================================
+
+      if (
+        interaction.isModalSubmit() &&
+        interaction.customId.startsWith(
+          'ticket-modal-'
+        )
+      ) {
+        const type =
+          interaction.customId.replace(
+            'ticket-modal-',
+            ''
+          );
+
+        const ticket =
+          TICKETS[type];
+
+        if (!ticket) {
+          return interaction.reply({
+            content:
+              '❌ Invalid ticket type.',
+            ephemeral: true
+          });
+        }
+
+        const answers =
+          ticket.q.map(
+            (_question, index) =>
+              interaction.fields.getTextInputValue(
+                `ticket-answer-${index}`
+              )
+          );
+
+        return createTicket(
+          interaction,
+          type,
+          answers
+        );
+      }
+
+      // ======================================================
+      // APPLICATION SELECT
+      // ======================================================
 
       if (
         interaction.isStringSelectMenu() &&
         interaction.customId ===
-          "application-select"
+          'application-select'
       ) {
         const type =
           interaction.values[0];
@@ -2908,14 +3229,37 @@ client.on(
         );
       }
 
-      /* =====================================================
-         ROLE BUTTON
-      ===================================================== */
+      // ======================================================
+      // APPLICATION DECISIONS
+      // ======================================================
+
+      if (
+        interaction.isButton() &&
+        (
+          interaction.customId.startsWith(
+            'app-accept-'
+          ) ||
+          interaction.customId.startsWith(
+            'app-deny-'
+          ) ||
+          interaction.customId.startsWith(
+            'app-blacklist-'
+          )
+        )
+      ) {
+        return handleApplicationDecision(
+          interaction
+        );
+      }
+
+      // ======================================================
+      // ROLE BUTTONS
+      // ======================================================
 
       if (
         interaction.isButton() &&
         interaction.customId.startsWith(
-          "role-"
+          'role-'
         )
       ) {
         return toggleButtonRole(
@@ -2923,58 +3267,23 @@ client.on(
         );
       }
 
-      /* =====================================================
-         TICKET CLOSE
-      ===================================================== */
+      // ======================================================
+      // CLOSE TICKET
+      // ======================================================
 
       if (
         interaction.isButton() &&
         interaction.customId ===
-          "ticket-close"
+          'ticket-close'
       ) {
         return closeTicket(
           interaction
         );
       }
 
-      /* =====================================================
-         APPLICATION REVIEW BUTTONS
-      ===================================================== */
-
-      if (
-        interaction.isButton() &&
-        interaction.customId.startsWith(
-          "app-"
-        )
-      ) {
-        const parts =
-          interaction.customId.split("-");
-
-        const action =
-          parts[1];
-
-        const type =
-          parts[2];
-
-        const userId =
-          parts[3];
-
-        if (
-          ["accept", "deny", "blacklist"].includes(
-            action
-          )
-        ) {
-          return reviewApplication(
-            interaction,
-            action,
-            type,
-            userId
-          );
-        }
-      }
     } catch (error) {
       console.error(
-        "Interaction error:",
+        'Interaction error:',
         error
       );
 
@@ -2984,7 +3293,7 @@ client.on(
       ) {
         await interaction.reply({
           content:
-            "❌ Something went wrong while processing that.",
+            '❌ Something went wrong while processing that.',
           ephemeral: true
         }).catch(() => {});
       }
@@ -2992,32 +3301,32 @@ client.on(
   }
 );
 
-/* =========================================================
-   ERROR HANDLING
-========================================================= */
+// ============================================================
+// ERROR HANDLING
+// ============================================================
 
 process.on(
-  "unhandledRejection",
+  'unhandledRejection',
   error => {
     console.error(
-      "Unhandled promise rejection:",
+      'Unhandled promise rejection:',
       error
     );
   }
 );
 
 process.on(
-  "uncaughtException",
+  'uncaughtException',
   error => {
     console.error(
-      "Uncaught exception:",
+      'Uncaught exception:',
       error
     );
   }
 );
 
-/* =========================================================
-   LOGIN
-========================================================= */
+// ============================================================
+// LOGIN
+// ============================================================
 
 client.login(TOKEN);
