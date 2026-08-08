@@ -492,22 +492,19 @@ async function advanceTicketQuestion(channel, session, answer) {
     });
 
     ticketSessions.delete(channel.id);
-    return;
-  }
-
-  await channel.send({
-    embeds: [
-      ticketEmbed(
-        `${ticket.emoji} ${ticket.label}`,
-        [
-          `**Question ${session.currentQuestion + 1} of ${ticket.questions.length}**`,
-          "",
-          ticket.questions[session.currentQuestion]
-        ].join("\n")
-      );
+await channel.send({
+  embeds: [
+    ticketEmbed(
+      `${ticket.emoji} ${ticket.label}`,
+      [
+        `**Question ${session.currentQuestion + 1} of ${ticket.questions.length}**`,
+        "",
+        ticket.questions[session.currentQuestion]
+      ].join("\n")
+    )
+  ]
+});
 }
-
-async function closeTicket(interaction) {
   const channel = interaction.channel;
 
   const session = ticketSessions.get(channel.id);
