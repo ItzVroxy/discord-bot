@@ -105,6 +105,8 @@ function guildConfig(guildId) {
 
       ticketStaffRole: null,
 
+      builderRole: null,
+
       buttonRoles: [],
 
       strikes: {
@@ -133,6 +135,10 @@ function guildConfig(guildId) {
 
   if (!Array.isArray(cfg.buttonRoles)) {
     cfg.buttonRoles = [];
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(cfg, 'builderRole')) {
+    cfg.builderRole = null;
   }
 
   return cfg;
@@ -193,15 +199,19 @@ function findText(guild, name) {
   return guild.channels.cache.find(
     channel =>
       channel.type === ChannelType.GuildText &&
-      channel.name.toLowerCase() ===
-        name.toLowerCase()
+      channel.name.toLowerCase() === name.toLowerCase()
+  );
+}
+
+function findRoleByName(guild, name) {
+  return guild.roles.cache.find(
+    role =>
+      role.name.toLowerCase() === name.toLowerCase()
   );
 }
 
 async function findRoleByNames(guild, names) {
-  const wanted = names.map(x =>
-    x.toLowerCase()
-  );
+  const wanted = names.map(x => x.toLowerCase());
 
   return guild.roles.cache.find(role =>
     wanted.includes(role.name.toLowerCase())
@@ -218,23 +228,23 @@ function replacePlaceholders(
   }
 ) {
   return String(text || '')
-    .replace(/\{user\}/gi, `${user}`)
+    .replace(/{user}/gi, user ? `${user}` : '')
     .replace(
-      /\{username\}/gi,
+      /{username}/gi,
       user?.user?.username ||
-        user?.username ||
-        ''
+      user?.username ||
+      ''
     )
     .replace(
-      /\{server\}/gi,
+      /{server}/gi,
       server?.name || ''
     )
     .replace(
-      /\{fromrole\}/gi,
+      /{fromrole}/gi,
       fromRole ? `${fromRole}` : ''
     )
     .replace(
-      /\{torole\}/gi,
+      /{torole}/gi,
       toRole ? `${toRole}` : ''
     );
 }
@@ -348,17 +358,17 @@ const APPS = {
       'How old are you?',
       'What is your timezone?',
       'How many years of Minecraft building experience do you have?',
-      'Which building styles are you strongest in?',
-      'What type of projects do you consider yourself best suited for?',
-      'What is the strongest build you have created and why?',
-      'What aspects of your building do you believe need improvement?',
-      'How many hours per week can you realistically dedicate to commissions?',
-      'Why are you interested in becoming a TVB builder?',
-      'How do you respond when a client or senior builder heavily critiques your work?',
-      'How comfortable are you working as part of a structured build team?',
-      'How would you handle a client requesting major changes late in a project?',
-      'What do you believe separates a professional Minecraft build from an average one?',
-      'Provide a screenshot, portfolio, or link to your strongest work.'
+      'Which building styles are you most proficient in?',
+      'Which types of projects do you believe best align with your current skill set?',
+      'What is the strongest build you have produced, and what specifically makes you consider it your best work?',
+      'What aspects of your building would you like to improve or develop further?',
+      'How many hours per week can you consistently and realistically dedicate to commissioned projects?',
+      'Why are you interested in joining the TVB builder team?',
+      'How would you respond if a client or senior builder provided significant criticism of your work?',
+      'How comfortable are you collaborating within a structured team while following another person’s creative direction?',
+      'How would you handle a client requesting substantial revisions after a project is already well underway?',
+      'In your opinion, what characteristics distinguish a professional Minecraft build from an average build?',
+      'Please provide screenshots, a portfolio, or links demonstrating the quality and range of your work.'
     ]
   },
 
@@ -372,18 +382,18 @@ const APPS = {
       'What is your Discord username?',
       'How old are you?',
       'What is your timezone?',
-      'How long have you been part of the TVB community?',
-      'What previous moderation or leadership experience do you have?',
+      'How long have you been an active member of the TVB community?',
+      'What previous moderation, administration, leadership, or community-management experience do you have?',
       'How many hours per week can you consistently dedicate to staff responsibilities?',
-      'Why do you believe you would be a strong addition to the TVB staff team?',
-      'What qualities do you believe are essential for an effective and respected moderator?',
-      'How would you de-escalate a conflict between two members without unnecessarily taking sides?',
-      'How would you handle a close friend violating a rule that you are responsible for enforcing?',
-      'What would you do if a member repeatedly ignored increasingly serious warnings?',
-      'How would you investigate a player report before deciding whether disciplinary action is justified?',
-      'How would you handle confidential staff information that should not be shared with regular members?',
-      'What specific strengths would you bring to the staff team?',
-      'What is one area of your communication, judgment, or leadership that you are actively working to improve?'
+      'Why do you believe you would be a strong and reliable addition to the TVB staff team?',
+      'Which qualities do you believe are essential for an effective, impartial, and respected moderator?',
+      'How would you de-escalate a disagreement between members while remaining neutral and enforcing the rules appropriately?',
+      'How would you handle a situation in which a close friend violated a rule that you were responsible for enforcing?',
+      'How would you approach a member who repeatedly disregarded warnings despite previous disciplinary action?',
+      'How would you investigate a player report before determining whether disciplinary action is justified?',
+      'How would you protect confidential staff information and handle information that should not be disclosed to regular members?',
+      'What specific strengths, skills, or perspectives would you contribute to the TVB staff team?',
+      'What is one area of your communication, judgment, or leadership that you are actively working to improve, and how are you addressing it?'
     ]
   }
 };
@@ -483,17 +493,13 @@ function ticketModal(type) {
   ticket.q.forEach((question, index) => {
     const input = new TextInputBuilder()
       .setCustomId(`answer-${index}`)
-      .setLabel(
-        question.slice(0, 45)
-      )
+      .setLabel(question.slice(0, 45))
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(true)
       .setMaxLength(1000);
 
     modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        input
-      )
+      new ActionRowBuilder().addComponents(input)
     );
   });
 
@@ -555,7 +561,7 @@ function serviceModal(type) {
 }
 
 /* =========================================================
-   CREATE TICKET
+   CREATE REGULAR TICKET
 ========================================================= */
 
 async function createTicket(
@@ -581,7 +587,7 @@ async function createTicket(
       channel =>
         channel.type === ChannelType.GuildText &&
         channel.topic ===
-          `TVB-TICKET:${member.id}`
+        `TVB-TICKET:${member.id}`
     );
 
   if (existing) {
@@ -619,6 +625,12 @@ async function createTicket(
     }
   ];
 
+  /*
+   * REGULAR TICKETS:
+   * Staff team can see them.
+   * Builder cannot automatically see them.
+   */
+
   if (staffRole) {
     overwrites.push({
       id: staffRole.id,
@@ -635,25 +647,24 @@ async function createTicket(
   let channel;
 
   try {
-    channel =
-      await guild.channels.create({
-        name:
-          `${type}-${safe(member.user.username)}`,
+    channel = await guild.channels.create({
+      name:
+        `${type}-${safe(member.user.username)}`,
 
-        type: ChannelType.GuildText,
+      type: ChannelType.GuildText,
 
-        parent:
-          cfg.ticketCategory || null,
+      parent:
+        cfg.ticketCategory || null,
 
-        topic:
-          `TVB-TICKET:${member.id}`,
+      topic:
+        `TVB-TICKET:${member.id}`,
 
-        permissionOverwrites:
-          overwrites,
+      permissionOverwrites:
+        overwrites,
 
-        reason:
-          `TVB Assistant • ${ticket.label}`
-      });
+      reason:
+        `TVB Assistant • ${ticket.label}`
+    });
   } catch (error) {
     console.error(
       'Could not create ticket:',
@@ -672,7 +683,8 @@ async function createTicket(
     {
       userId: member.id,
       type,
-      answers
+      answers,
+      service: false
     }
   );
 
@@ -745,14 +757,22 @@ async function createServiceTicket(
   const guild = interaction.guild;
   const member = interaction.member;
   const cfg = guildConfig(guild.id);
+
   const service = SERVICES[type];
+
+  if (!service) {
+    return interaction.reply({
+      content: '❌ Invalid service type.',
+      ephemeral: true
+    });
+  }
 
   const existing =
     guild.channels.cache.find(
       channel =>
         channel.type === ChannelType.GuildText &&
         channel.topic ===
-          `TVB-SERVICE:${member.id}`
+        `TVB-SERVICE:${member.id}`
     );
 
   if (existing) {
@@ -769,6 +789,35 @@ async function createServiceTicket(
           cfg.ticketStaffRole
         )
       : null;
+
+  /*
+   * IMPORTANT:
+   * Service tickets are visible to:
+   * - Ticket creator
+   * - Staff Team
+   * - Builder
+   */
+
+  let builderRole =
+    cfg.builderRole
+      ? guild.roles.cache.get(
+          cfg.builderRole
+        )
+      : null;
+
+  /*
+   * Fallback:
+   * If /setbuilderrole has not been used,
+   * try finding a role named "builder".
+   */
+
+  if (!builderRole) {
+    builderRole =
+      findRoleByName(
+        guild,
+        'builder'
+      );
+  }
 
   const overwrites = [
     {
@@ -803,6 +852,22 @@ async function createServiceTicket(
     });
   }
 
+  if (
+    builderRole &&
+    (!staffRole ||
+      builderRole.id !== staffRole.id)
+  ) {
+    overwrites.push({
+      id: builderRole.id,
+
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory
+      ]
+    });
+  }
+
   let channel;
 
   try {
@@ -833,31 +898,45 @@ async function createServiceTicket(
 
     return interaction.reply({
       content:
-        '❌ I could not create the service ticket. Check my permissions.',
+        '❌ I could not create the service ticket. Check my permissions and category settings.',
       ephemeral: true
     });
   }
 
-  const serviceEmbed = embed(
-    `${service.emoji} ${service.label} Request`,
-    [
-      `**Customer:** ${member}`,
-      '',
-      '**What Are You Looking For?**',
-      `> ${answers.lookingFor}`,
-      '',
-      '**What Is Your Price Range?**',
-      `> ${answers.price}`,
-      '',
-      '**Any Add Ons?**',
-      `> ${
-        answers.addons ||
-        'None specified.'
-      }`,
-      '',
-      'A member of the TVB team will review your request shortly.'
-    ].join('\n')
+  ticketSessions.set(
+    channel.id,
+    {
+      userId: member.id,
+      type,
+      answers,
+      service: true
+    }
   );
+
+  const serviceEmbed =
+    embed(
+      `${service.emoji} ${service.label} Request`,
+
+      [
+        `**Customer:** ${member}`,
+        '',
+        '**What Are You Looking For?**',
+        `> ${answers.lookingFor}`,
+        '',
+        '**What Is Your Price Range?**',
+        `> ${answers.price}`,
+        '',
+        '**Any Add Ons?**',
+        `> ${
+          answers.addons ||
+          'None specified.'
+        }`,
+        '',
+        'A member of the TVB team will review your request shortly.'
+      ].join('\n'),
+
+      0xf5a623
+    );
 
   const buttons =
     new ActionRowBuilder().addComponents(
@@ -868,13 +947,19 @@ async function createServiceTicket(
         .setStyle(ButtonStyle.Danger)
     );
 
+  const staffPing =
+    staffRole
+      ? `${staffRole}`
+      : '';
+
+  const builderPing =
+    builderRole
+      ? `${builderRole}`
+      : '';
+
   await channel.send({
     content:
-      `${member}${
-        staffRole
-          ? ` ${staffRole}`
-          : ''
-      }`,
+      `${member} ${staffPing} ${builderPing}`.trim(),
 
     embeds: [
       serviceEmbed
@@ -1028,9 +1113,7 @@ async function closeTicket(
       channel.id
     );
 
-  if (
-    !session
-  ) {
+  if (!session) {
     return interaction.reply({
       content:
         "⚠️ This isn't an active TVB ticket.",
@@ -1050,21 +1133,39 @@ async function closeTicket(
         )
       : null;
 
+  const builderRole =
+    cfg.builderRole
+      ? interaction.guild.roles.cache.get(
+          cfg.builderRole
+        )
+      : findRoleByName(
+          interaction.guild,
+          'builder'
+        );
+
   const isStaff =
     staffRole &&
     interaction.member.roles.cache.has(
       staffRole.id
     );
 
+  const isBuilder =
+    session.service &&
+    builderRole &&
+    interaction.member.roles.cache.has(
+      builderRole.id
+    );
+
   if (
     session.userId !==
       interaction.user.id &&
     !isStaff &&
+    !isBuilder &&
     !moderator(interaction)
   ) {
     return interaction.reply({
       content:
-        '❌ Only the ticket creator or ticket staff can close this ticket.',
+        '❌ You do not have permission to close this ticket.',
       ephemeral: true
     });
   }
@@ -1297,13 +1398,9 @@ async function sendNextApplicationQuestion(
           `### Question ${
             session.questionIndex + 1
           } of 15`,
-
           '',
-
           question,
-
           '',
-
           '💡 Take your time and give your best answer.',
           '❌ Type `cancel` to stop.'
         ].join('\n')
@@ -1569,9 +1666,7 @@ async function handleApplicationAction(
   const userId =
     parts[3];
 
-  if (
-    !interaction.guild
-  ) {
+  if (!interaction.guild) {
     return interaction.reply({
       content:
         '❌ This can only be used inside the server.',
@@ -1579,9 +1674,7 @@ async function handleApplicationAction(
     });
   }
 
-  if (
-    !moderator(interaction)
-  ) {
+  if (!moderator(interaction)) {
     return interaction.reply({
       content:
         '❌ You need moderation permissions to process applications.',
@@ -1604,9 +1697,7 @@ async function handleApplicationAction(
 
   let roleNames;
 
-  if (
-    type === 'staff'
-  ) {
+  if (type === 'staff') {
     roleNames = {
       accepted: [
         'staff team',
@@ -1629,6 +1720,17 @@ async function handleApplicationAction(
     };
   }
 
+  const botMember =
+    interaction.guild.members.me;
+
+  if (!botMember) {
+    return interaction.reply({
+      content:
+        '❌ I could not determine my bot member.',
+      ephemeral: true
+    });
+  }
+
   if (
     action === 'accept'
   ) {
@@ -1644,24 +1746,29 @@ async function handleApplicationAction(
           [roleName]
         );
 
-      if (
-        !role
-      ) continue;
+      if (!role) continue;
 
       if (
         role.position >=
-        interaction.guild.members.me.roles.highest.position
+        botMember.roles.highest.position
       ) {
         continue;
       }
 
-      await member.roles.add(
-        role
-      );
+      try {
+        await member.roles.add(
+          role
+        );
 
-      added.push(
-        `${role}`
-      );
+        added.push(
+          `${role}`
+        );
+      } catch (error) {
+        console.error(
+          `Could not add role ${role.name}:`,
+          error
+        );
+      }
     }
 
     await interaction.update({
@@ -1679,7 +1786,7 @@ async function handleApplicationAction(
               '',
               added.length
                 ? `Roles added: ${added.join(', ')}`
-                : '⚠️ No matching roles were found.'
+                : '⚠️ No matching roles were found or the roles are above the bot.'
             ].join('\n')
           )
           .setTimestamp()
@@ -1726,15 +1833,23 @@ async function handleApplicationAction(
         roleNames.blacklist
       );
 
+    let added = false;
+
     if (
-      blacklistRole
+      blacklistRole &&
+      blacklistRole.position <
+        botMember.roles.highest.position
     ) {
-      if (
-        blacklistRole.position <
-        interaction.guild.members.me.roles.highest.position
-      ) {
+      try {
         await member.roles.add(
           blacklistRole
+        );
+
+        added = true;
+      } catch (error) {
+        console.error(
+          'Could not add blacklist role:',
+          error
         );
       }
     }
@@ -1752,9 +1867,9 @@ async function handleApplicationAction(
               '',
               `Blacklisted by: ${interaction.user}`,
               '',
-              blacklistRole
+              blacklistRole && added
                 ? `Added ${blacklistRole}`
-                : '⚠️ Blacklist role was not found.'
+                : '⚠️ Blacklist role was not found or cannot be managed by the bot.'
             ].join('\n')
           )
           .setTimestamp()
@@ -1809,7 +1924,7 @@ function buildRoleButton(
         `role-${role.id}`
       )
       .setLabel(
-        role.name
+        role.name.slice(0, 80)
       )
       .setStyle(
         ButtonStyle.Secondary
@@ -1899,6 +2014,14 @@ async function sendButtonRolePanel(
     row.components.length
   ) {
     rows.push(row);
+  }
+
+  if (!rows.length) {
+    return interaction.reply({
+      content:
+        '❌ None of the configured roles still exist.',
+      ephemeral: true
+    });
   }
 
   const panel =
@@ -2068,6 +2191,14 @@ async function handleTeamAction(
   const botMember =
     interaction.guild.members.me;
 
+  if (!botMember) {
+    return interaction.reply({
+      content:
+        '❌ I could not determine my bot member.',
+      ephemeral: true
+    });
+  }
+
   if (
     fromRole &&
     fromRole.position >=
@@ -2088,6 +2219,23 @@ async function handleTeamAction(
     return interaction.reply({
       content:
         `❌ I can't manage ${toRole}. My bot role must be above it.`,
+      ephemeral: true
+    });
+  }
+
+  /*
+   * Prevent the bot from modifying another
+   * member that is higher/equal to the bot.
+   */
+
+  if (
+    member.roles.highest.position >=
+      botMember.roles.highest.position &&
+    member.id !== interaction.guild.ownerId
+  ) {
+    return interaction.reply({
+      content:
+        "❌ I can't manage this member because their highest role is equal to or higher than my highest role.",
       ephemeral: true
     });
   }
@@ -2199,19 +2347,24 @@ function updateEmbed(
     important: '⚠️ Important'
   };
 
+  const sections = [
+    `**${description}**`
+  ];
+
+  if (extra) {
+    sections.push(
+      '',
+      `||${extra}||`
+    );
+  }
+
   return new EmbedBuilder()
     .setColor(0x7c5cff)
     .setTitle(
       `${typeLabels[type] || '📢 Update'} • ${title}`
     )
     .setDescription(
-      [
-        description,
-        '',
-        extra
-          ? `||${extra}||`
-          : ''
-      ].join('\n')
+      sections.join('\n')
     )
     .setFooter({
       text:
@@ -2226,11 +2379,15 @@ function updateEmbed(
 
 const commands = [
 
+  /* PING */
+
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription(
       'Check if TVB Assistant is online.'
     ),
+
+  /* TICKET PANEL */
 
   new SlashCommandBuilder()
     .setName('ticketpanel')
@@ -2238,17 +2395,23 @@ const commands = [
       'Post the TVB ticket panel.'
     ),
 
+  /* SERVICE PANEL */
+
   new SlashCommandBuilder()
     .setName('servicepanel')
     .setDescription(
       'Post the TVB services panel.'
     ),
 
+  /* APPLICATION PANEL */
+
   new SlashCommandBuilder()
     .setName('applicationpanel')
     .setDescription(
       'Post the TVB application panel.'
     ),
+
+  /* BUTTON ROLES */
 
   new SlashCommandBuilder()
     .setName('buttonrole')
@@ -2307,6 +2470,8 @@ const commands = [
         )
     ),
 
+  /* SET WELCOME */
+
   new SlashCommandBuilder()
     .setName('setwelcome')
     .setDescription(
@@ -2334,6 +2499,8 @@ const commands = [
         .setRequired(true)
     ),
 
+  /* AUTOROLE */
+
   new SlashCommandBuilder()
     .setName('setautorole')
     .setDescription(
@@ -2349,6 +2516,8 @@ const commands = [
         .setRequired(true)
     ),
 
+  /* TICKET STAFF */
+
   new SlashCommandBuilder()
     .setName('setticketstaff')
     .setDescription(
@@ -2359,10 +2528,29 @@ const commands = [
       option
         .setName('role')
         .setDescription(
-          'Role that can see tickets.'
+          'Role that can see regular and service tickets.'
         )
         .setRequired(true)
     ),
+
+  /* BUILDER ROLE */
+
+  new SlashCommandBuilder()
+    .setName('setbuilderrole')
+    .setDescription(
+      'Set the builder role that can see service tickets.'
+    )
+
+    .addRoleOption(option =>
+      option
+        .setName('role')
+        .setDescription(
+          'Your builder role.'
+        )
+        .setRequired(true)
+    ),
+
+  /* TICKET CATEGORY */
 
   new SlashCommandBuilder()
     .setName('setticketcategory')
@@ -2382,7 +2570,9 @@ const commands = [
         .setRequired(true)
     ),
 
-  /* ---------------- STAFF ---------------- */
+  /* =====================================================
+     STAFF
+  ===================================================== */
 
   new SlashCommandBuilder()
     .setName('staff')
@@ -2566,7 +2756,9 @@ const commands = [
         )
     ),
 
-  /* ---------------- BUILDER ---------------- */
+  /* =====================================================
+     BUILDER
+  ===================================================== */
 
   new SlashCommandBuilder()
     .setName('builder')
@@ -2662,7 +2854,9 @@ const commands = [
         )
     ),
 
-  /* ---------------- UPDATES ---------------- */
+  /* =====================================================
+     UPDATE
+  ===================================================== */
 
   new SlashCommandBuilder()
     .setName('update')
@@ -2938,9 +3132,9 @@ client.on(
   async interaction => {
     try {
 
-      /* =====================================================
+      /* ===================================================
          SLASH COMMANDS
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isChatInputCommand()
@@ -2970,7 +3164,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -2991,7 +3185,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3012,7 +3206,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3033,7 +3227,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3062,9 +3256,13 @@ client.on(
               ) ||
               '🔘';
 
+            const botMember =
+              interaction.guild.members.me;
+
             if (
+              !botMember ||
               role.position >=
-              interaction.guild.members.me.roles.highest.position
+                botMember.roles.highest.position
             ) {
               return interaction.reply({
                 content:
@@ -3173,7 +3371,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3219,7 +3417,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3229,9 +3427,13 @@ client.on(
               'role'
             );
 
+          const botMember =
+            interaction.guild.members.me;
+
           if (
+            !botMember ||
             role.position >=
-            interaction.guild.members.me.roles.highest.position
+              botMember.roles.highest.position
           ) {
             return interaction.reply({
               content:
@@ -3268,7 +3470,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3295,6 +3497,44 @@ client.on(
           });
         }
 
+        /* SET BUILDER ROLE */
+
+        if (
+          interaction.commandName ===
+          'setbuilderrole'
+        ) {
+          if (
+            !manager(interaction)
+          ) {
+            return interaction.reply({
+              content:
+                '❌ You need Manage Server or Manage Roles to use this command.',
+              ephemeral: true
+            });
+          }
+
+          const role =
+            interaction.options.getRole(
+              'role'
+            );
+
+          const cfg =
+            guildConfig(
+              interaction.guild.id
+            );
+
+          cfg.builderRole =
+            role.id;
+
+          saveConfig();
+
+          return interaction.reply({
+            content:
+              `✅ Builder service-ticket role set to ${role}.`,
+            ephemeral: true
+          });
+        }
+
         /* SET TICKET CATEGORY */
 
         if (
@@ -3306,7 +3546,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3370,7 +3610,7 @@ client.on(
           ) {
             return interaction.reply({
               content:
-                '❌ You need Manage Server to use this command.',
+                '❌ You need Manage Server or Manage Roles to use this command.',
               ephemeral: true
             });
           }
@@ -3396,17 +3636,27 @@ client.on(
             );
 
           const updatesRole =
-            interaction.guild.roles.cache.find(
-              role =>
-                role.name.toLowerCase() ===
-                'updates'
+            findRoleByName(
+              interaction.guild,
+              'updates'
             );
 
           await interaction.channel.send({
             content:
               updatesRole
                 ? `${updatesRole}`
-                : '@updates',
+                : '📢 **Updates**',
+
+            allowedMentions:
+              updatesRole
+                ? {
+                    roles: [
+                      updatesRole.id
+                    ]
+                  }
+                : {
+                    parse: []
+                  },
 
             embeds: [
               updateEmbed(
@@ -3426,9 +3676,9 @@ client.on(
         }
       }
 
-      /* =====================================================
+      /* ===================================================
          TICKET DROPDOWN
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isStringSelectMenu() &&
@@ -3443,9 +3693,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          SERVICE DROPDOWN
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isStringSelectMenu() &&
@@ -3460,9 +3710,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          APPLICATION DROPDOWN
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isStringSelectMenu() &&
@@ -3478,9 +3728,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          TICKET MODAL
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isModalSubmit() &&
@@ -3520,9 +3770,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          SERVICE MODAL
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isModalSubmit() &&
@@ -3570,9 +3820,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          ROLE BUTTON
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isButton() &&
@@ -3585,9 +3835,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          CLOSE TICKET
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isButton() &&
@@ -3599,9 +3849,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          APPLICATION ACTION
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isButton() &&
@@ -3648,12 +3898,12 @@ client.on(
 ========================================================= */
 
 /*
-   This sends "a" to #bot-activity every 10 minutes.
+   Sends "a" to #bot-activity every 10 minutes.
 
-   IMPORTANT:
-   This is NOT a replacement for an always-on Render plan.
-   If you move to Render Starter, you can remove this section
-   if you don't actually want the messages.
+   NOTE:
+   This does NOT make a sleeping/free hosting plan
+   permanently online. It simply creates activity while
+   the process is actually running.
 */
 
 setInterval(
@@ -3669,9 +3919,7 @@ setInterval(
             'bot-activity'
           );
 
-        if (
-          !channel
-        ) continue;
+        if (!channel) continue;
 
         await channel.send(
           'a'
