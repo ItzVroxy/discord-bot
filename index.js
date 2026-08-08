@@ -505,8 +505,9 @@ await channel.send({
   ]
 });
 }
-  const channel = interaction.channel;
 
+async function closeTicket(interaction) {
+  const channel = interaction.channel;
   const session = ticketSessions.get(channel.id);
 
   if (!session) {
