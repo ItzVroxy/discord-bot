@@ -504,8 +504,7 @@ async function advanceTicketQuestion(channel, session, answer) {
           "",
           ticket.questions[session.currentQuestion]
         ].join("\n")
-      )
-    ]);
+      );
 }
 
 async function closeTicket(interaction) {
