@@ -1,5 +1,5 @@
 const express = require("express");
-const fs = require("fs");
+
 const {
   Client,
   GatewayIntentBits,
@@ -20,6 +20,8 @@ const {
   TextInputStyle
 } = require("discord.js");
 
+const fs = require("fs");
+
 /* =========================================================
    CONFIG
 ========================================================= */
@@ -27,12 +29,16 @@ const {
 const TOKEN = process.env.DISCORD_TOKEN;
 
 if (!TOKEN) {
-  console.error("ERROR: DISCORD_TOKEN is missing.");
+  console.error("ERROR: Missing DISCORD_TOKEN environment variable.");
   process.exit(1);
 }
 
 const PORT = Number(process.env.PORT || 10000);
 const CONFIG_FILE = "./config.json";
+
+/* =========================================================
+   EXPRESS WEB SERVER
+========================================================= */
 
 const app = express();
 
@@ -41,11 +47,11 @@ app.get("/", (_req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Web server listening on ${PORT}`);
+  console.log(`Web server listening on port ${PORT}`);
 });
 
 /* =========================================================
-   CLIENT
+   DISCORD CLIENT
 ========================================================= */
 
 const client = new Client({
@@ -60,7 +66,7 @@ const client = new Client({
 });
 
 /* =========================================================
-   CONFIG
+   CONFIG SYSTEM
 ========================================================= */
 
 let config = {};
@@ -81,19 +87,40 @@ function saveConfig() {
       JSON.stringify(config, null, 2)
     );
   } catch (error) {
-    console.error("Could not save config:", error);
+    console.error("Could not save config.json:", error);
   }
 }
 
 function guildConfig(guildId) {
   if (!config[guildId]) {
-    config[guildId] = {};
+    config[guildId] = {
+      welcomeChannel: null,
+      welcomeMessage: "Welcome {user} to **{server}**! 🎉",
+      autorole: null,
+
+      ticketCategory: null,
+      ticketStaffRole: null,
+      builderRole: null,
+
+      buttonRoles: [],
+
+      giveaways: {},
+
+      strikes: {
+        staff: {},
+        builder: {}
+      }
+    };
   }
 
   const cfg = config[guildId];
 
   if (!Array.isArray(cfg.buttonRoles)) {
     cfg.buttonRoles = [];
+  }
+
+  if (!cfg.giveaways || typeof cfg.giveaways !== "object") {
+    cfg.giveaways = {};
   }
 
   if (!cfg.strikes) {
@@ -111,20 +138,11 @@ function guildConfig(guildId) {
     cfg.strikes.builder = {};
   }
 
-  if (!Array.isArray(cfg.giveaways)) {
-    cfg.giveaways = [];
-  }
-
-  if (!cfg.welcomeMessage) {
-    cfg.welcomeMessage =
-      "Welcome {user} to **{server}**! 🎉";
-  }
-
   return cfg;
 }
 
 /* =========================================================
-   PERMISSIONS
+   PERMISSION HELPERS
 ========================================================= */
 
 function manager(interaction) {
@@ -148,23 +166,31 @@ function moderator(interaction) {
 }
 
 /* =========================================================
-   HELPERS
+   GENERAL HELPERS
 ========================================================= */
 
 function safe(value) {
-  return String(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 60) || "user";
+  return (
+    String(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .slice(0, 60) || "user"
+  );
 }
 
-function embed(title, description, color = 0x7c5cff) {
+function embed(
+  title,
+  description,
+  color = 0x7c5cff
+) {
   return new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
     .setDescription(description)
-    .setFooter({ text: "TVB Assistant" })
+    .setFooter({
+      text: "TVB Assistant"
+    })
     .setTimestamp();
 }
 
@@ -176,12 +202,54 @@ function findText(guild, name) {
   );
 }
 
-function findRole(guild, names) {
-  const wanted = names.map(x => x.toLowerCase());
+function findRoleByName(guild, name) {
+  return guild.roles.cache.find(
+    role => role.name.toLowerCase() === name.toLowerCase()
+  );
+}
+
+function findRoleByNames(guild, names) {
+  const wanted = names.map(name => name.toLowerCase());
 
   return guild.roles.cache.find(role =>
     wanted.includes(role.name.toLowerCase())
   );
+}
+
+function getStaffRole(guild) {
+  const cfg = guildConfig(guild.id);
+
+  if (cfg.ticketStaffRole) {
+    const configured = guild.roles.cache.get(cfg.ticketStaffRole);
+
+    if (configured) {
+      return configured;
+    }
+  }
+
+  return findRoleByNames(guild, [
+    "staff team",
+    "staff",
+    "moderator",
+    "moderators"
+  ]);
+}
+
+function getBuilderRole(guild) {
+  const cfg = guildConfig(guild.id);
+
+  if (cfg.builderRole) {
+    const configured = guild.roles.cache.get(cfg.builderRole);
+
+    if (configured) {
+      return configured;
+    }
+  }
+
+  return findRoleByNames(guild, [
+    "builder",
+    "builders"
+  ]);
 }
 
 function replacePlaceholders(
@@ -194,7 +262,7 @@ function replacePlaceholders(
   }
 ) {
   return String(text || "")
-    .replace(/{user}/gi, user ? `${user}` : "")
+    .replace(/{user}/gi, `${user}`)
     .replace(
       /{username}/gi,
       user?.user?.username ||
@@ -213,14 +281,6 @@ function replacePlaceholders(
       /{torole}/gi,
       toRole ? `${toRole}` : ""
     );
-}
-
-function botCanManageRole(guild, role) {
-  const me = guild.members.me;
-
-  if (!me || !role) return false;
-
-  return role.position < me.roles.highest.position;
 }
 
 /* =========================================================
@@ -282,7 +342,7 @@ const TICKETS = {
 };
 
 /* =========================================================
-   SERVICES
+   SERVICE TYPES
 ========================================================= */
 
 const SERVICES = {
@@ -360,81 +420,14 @@ const APPS = {
 };
 
 /* =========================================================
-   SESSIONS
+   SESSION STORAGE
 ========================================================= */
 
 const appSessions = new Map();
 const ticketSessions = new Map();
 
 /* =========================================================
-   TICKET PERMISSIONS
-========================================================= */
-
-function getTicketOverwrites(guild, member, cfg, isService) {
-  const overwrites = [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionsBitField.Flags.ViewChannel]
-    },
-
-    {
-      id: member.id,
-      allow: [
-        PermissionsBitField.Flags.ViewChannel,
-        PermissionsBitField.Flags.SendMessages,
-        PermissionsBitField.Flags.ReadMessageHistory
-      ]
-    }
-  ];
-
-  /*
-    STAFF TEAM:
-    Can see BOTH regular tickets AND service tickets.
-  */
-
-  if (cfg.ticketStaffRole) {
-    const staffRole =
-      guild.roles.cache.get(cfg.ticketStaffRole);
-
-    if (staffRole) {
-      overwrites.push({
-        id: staffRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ReadMessageHistory,
-          PermissionsBitField.Flags.ManageMessages
-        ]
-      });
-    }
-  }
-
-  /*
-    BUILDER:
-    Can ONLY see service tickets.
-  */
-
-  if (isService && cfg.builderRole) {
-    const builderRole =
-      guild.roles.cache.get(cfg.builderRole);
-
-    if (builderRole) {
-      overwrites.push({
-        id: builderRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ReadMessageHistory
-        ]
-      });
-    }
-  }
-
-  return overwrites;
-}
-
-/* =========================================================
-   TICKET MENUS
+   TICKET MENU
 ========================================================= */
 
 function ticketMenu() {
@@ -455,6 +448,10 @@ function ticketMenu() {
   );
 }
 
+/* =========================================================
+   SERVICE MENU
+========================================================= */
+
 function serviceMenu() {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -473,6 +470,10 @@ function serviceMenu() {
   );
 }
 
+/* =========================================================
+   APPLICATION MENU
+========================================================= */
+
 function appMenu() {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -485,7 +486,9 @@ function appMenu() {
               .setLabel(application.label)
               .setValue(value)
               .setEmoji(application.emoji)
-              .setDescription("15 questions • completed privately in DMs")
+              .setDescription(
+                "15 questions • completed privately in DMs"
+              )
         )
       )
   );
@@ -560,13 +563,18 @@ function serviceModal(type) {
 }
 
 /* =========================================================
-   CREATE NORMAL TICKET
+   CREATE REGULAR TICKET
 ========================================================= */
 
-async function createTicket(interaction, type, answers) {
+async function createTicket(
+  interaction,
+  type,
+  answers
+) {
   const guild = interaction.guild;
   const member = interaction.member;
   const cfg = guildConfig(guild.id);
+
   const ticket = TICKETS[type];
 
   if (!ticket) {
@@ -584,17 +592,48 @@ async function createTicket(interaction, type, answers) {
 
   if (existing) {
     return interaction.reply({
-      content: `❌ You already have an open ticket: ${existing}`,
+      content:
+        `❌ You already have an open ticket: ${existing}`,
       ephemeral: true
     });
   }
 
-  const overwrites = getTicketOverwrites(
-    guild,
-    member,
-    cfg,
-    false
-  );
+  const staffRole = getStaffRole(guild);
+
+  const overwrites = [
+    {
+      id: guild.roles.everyone.id,
+      deny: [
+        PermissionsBitField.Flags.ViewChannel
+      ]
+    },
+
+    {
+      id: member.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory
+      ]
+    }
+  ];
+
+  /* REGULAR TICKETS:
+     STAFF CAN SEE
+     BUILDERS CANNOT SEE
+  */
+
+  if (staffRole) {
+    overwrites.push({
+      id: staffRole.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.ManageMessages
+      ]
+    });
+  }
 
   let channel;
 
@@ -612,7 +651,7 @@ async function createTicket(interaction, type, answers) {
 
     return interaction.reply({
       content:
-        "❌ I could not create the ticket. Check my permissions/category settings.",
+        "❌ I could not create the ticket. Check my permissions, category, and role settings.",
       ephemeral: true
     });
   }
@@ -620,8 +659,8 @@ async function createTicket(interaction, type, answers) {
   ticketSessions.set(channel.id, {
     userId: member.id,
     type,
-    answers,
-    service: false
+    service: false,
+    answers
   });
 
   const answerText = ticket.q
@@ -646,26 +685,28 @@ async function createTicket(interaction, type, answers) {
     ].join("\n")
   );
 
-  const buttons = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("ticket-close")
-      .setLabel("Close Ticket")
-      .setEmoji("🔒")
-      .setStyle(ButtonStyle.Danger)
-  );
-
-  const staffRole = cfg.ticketStaffRole
-    ? guild.roles.cache.get(cfg.ticketStaffRole)
-    : null;
+  const buttons =
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("ticket-close")
+        .setLabel("Close Ticket")
+        .setEmoji("🔒")
+        .setStyle(ButtonStyle.Danger)
+    );
 
   await channel.send({
-    content: `${member}${staffRole ? ` ${staffRole}` : ""}`,
+    content: staffRole
+      ? `${member} ${staffRole}`
+      : `${member}`,
+
     embeds: [ticketEmbed],
+
     components: [buttons]
   });
 
   return interaction.reply({
-    content: `✅ Your ticket has been created: ${channel}`,
+    content:
+      `✅ Your ticket has been created: ${channel}`,
     ephemeral: true
   });
 }
@@ -682,7 +723,15 @@ async function createServiceTicket(
   const guild = interaction.guild;
   const member = interaction.member;
   const cfg = guildConfig(guild.id);
+
   const service = SERVICES[type];
+
+  if (!service) {
+    return interaction.reply({
+      content: "❌ Invalid service.",
+      ephemeral: true
+    });
+  }
 
   const existing = guild.channels.cache.find(
     channel =>
@@ -698,23 +747,70 @@ async function createServiceTicket(
     });
   }
 
-  const overwrites = getTicketOverwrites(
-    guild,
-    member,
-    cfg,
-    true
-  );
+  const staffRole = getStaffRole(guild);
+  const builderRole = getBuilderRole(guild);
+
+  const overwrites = [
+    {
+      id: guild.roles.everyone.id,
+      deny: [
+        PermissionsBitField.Flags.ViewChannel
+      ]
+    },
+
+    {
+      id: member.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory
+      ]
+    }
+  ];
+
+  /* SERVICE TICKETS:
+     STAFF CAN SEE
+     BUILDERS CAN SEE
+  */
+
+  if (staffRole) {
+    overwrites.push({
+      id: staffRole.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.ManageMessages
+      ]
+    });
+  }
+
+  if (
+    builderRole &&
+    (!staffRole || builderRole.id !== staffRole.id)
+  ) {
+    overwrites.push({
+      id: builderRole.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory
+      ]
+    });
+  }
 
   let channel;
 
   try {
     channel = await guild.channels.create({
-      name: `service-${type}-${safe(member.user.username)}`,
+      name:
+        `service-${type}-${safe(member.user.username)}`,
       type: ChannelType.GuildText,
       parent: cfg.ticketCategory || null,
       topic: `TVB-SERVICE:${member.id}`,
       permissionOverwrites: overwrites,
-      reason: `TVB Assistant • ${service.label} service`
+      reason:
+        `TVB Assistant • ${service.label} service`
     });
   } catch (error) {
     console.error(
@@ -724,7 +820,7 @@ async function createServiceTicket(
 
     return interaction.reply({
       content:
-        "❌ I could not create the service ticket. Check my permissions.",
+        "❌ I could not create the service ticket. Check my permissions and category settings.",
       ephemeral: true
     });
   }
@@ -732,8 +828,8 @@ async function createServiceTicket(
   ticketSessions.set(channel.id, {
     userId: member.id,
     type,
-    answers,
-    service: true
+    service: true,
+    answers
   });
 
   const serviceEmbed = embed(
@@ -755,31 +851,34 @@ async function createServiceTicket(
     0xf5a623
   );
 
-  const buttons = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("ticket-close")
-      .setLabel("Close Request")
-      .setEmoji("🔒")
-      .setStyle(ButtonStyle.Danger)
-  );
+  const buttons =
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("ticket-close")
+        .setLabel("Close Request")
+        .setEmoji("🔒")
+        .setStyle(ButtonStyle.Danger)
+    );
 
-  const staffRole = cfg.ticketStaffRole
-    ? guild.roles.cache.get(cfg.ticketStaffRole)
-    : null;
+  const pingRoles = [];
 
-  const builderRole = cfg.builderRole
-    ? guild.roles.cache.get(cfg.builderRole)
-    : null;
+  if (staffRole) {
+    pingRoles.push(`${staffRole}`);
+  }
+
+  if (
+    builderRole &&
+    (!staffRole || builderRole.id !== staffRole.id)
+  ) {
+    pingRoles.push(`${builderRole}`);
+  }
 
   await channel.send({
-    content: [
-      `${member}`,
-      staffRole ? `${staffRole}` : "",
-      builderRole ? `${builderRole}` : ""
-    ]
-      .filter(Boolean)
-      .join(" "),
+    content:
+      `${member} ${pingRoles.join(" ")}`.trim(),
+
     embeds: [serviceEmbed],
+
     components: [buttons]
   });
 
@@ -791,7 +890,7 @@ async function createServiceTicket(
 }
 
 /* =========================================================
-   PANELS
+   TICKET PANEL
 ========================================================= */
 
 async function sendTicketPanel(interaction) {
@@ -840,6 +939,10 @@ async function sendTicketPanel(interaction) {
   });
 }
 
+/* =========================================================
+   SERVICE PANEL
+========================================================= */
+
 async function sendServicePanel(interaction) {
   const panel = new EmbedBuilder()
     .setColor(0xf5a623)
@@ -882,6 +985,71 @@ async function sendServicePanel(interaction) {
     ephemeral: true
   });
 }
+
+/* =========================================================
+   CLOSE TICKET
+========================================================= */
+
+async function closeTicket(interaction) {
+  const channel = interaction.channel;
+  const session = ticketSessions.get(channel.id);
+
+  if (!session) {
+    return interaction.reply({
+      content: "⚠️ This isn't an active TVB ticket.",
+      ephemeral: true
+    });
+  }
+
+  const staffRole = getStaffRole(interaction.guild);
+
+  const builderRole = getBuilderRole(interaction.guild);
+
+  const isStaff =
+    staffRole &&
+    interaction.member.roles.cache.has(staffRole.id);
+
+  const isBuilder =
+    builderRole &&
+    interaction.member.roles.cache.has(builderRole.id);
+
+  const canClose =
+    session.userId === interaction.user.id ||
+    isStaff ||
+    (session.service && isBuilder) ||
+    moderator(interaction);
+
+  if (!canClose) {
+    return interaction.reply({
+      content:
+        "❌ You do not have permission to close this ticket.",
+      ephemeral: true
+    });
+  }
+
+  await interaction.reply({
+    content: "🔒 Closing this ticket in 5 seconds..."
+  });
+
+  ticketSessions.delete(channel.id);
+
+  setTimeout(async () => {
+    try {
+      await channel.delete(
+        "TVB Assistant ticket closed"
+      );
+    } catch (error) {
+      console.error(
+        "Could not delete ticket:",
+        error
+      );
+    }
+  }, 5000);
+}
+
+/* =========================================================
+   APPLICATION PANEL
+========================================================= */
 
 async function sendApplicationPanel(interaction) {
   const panel = new EmbedBuilder()
@@ -928,72 +1096,13 @@ async function sendApplicationPanel(interaction) {
 }
 
 /* =========================================================
-   CLOSE TICKET
+   START APPLICATION
 ========================================================= */
 
-async function closeTicket(interaction) {
-  const channel = interaction.channel;
-  const session = ticketSessions.get(channel.id);
-
-  if (!session) {
-    return interaction.reply({
-      content: "⚠️ This isn't an active TVB ticket.",
-      ephemeral: true
-    });
-  }
-
-  const cfg = guildConfig(interaction.guild.id);
-
-  const staffRole = cfg.ticketStaffRole
-    ? interaction.guild.roles.cache.get(cfg.ticketStaffRole)
-    : null;
-
-  const builderRole = cfg.builderRole
-    ? interaction.guild.roles.cache.get(cfg.builderRole)
-    : null;
-
-  const isStaff =
-    staffRole &&
-    interaction.member.roles.cache.has(staffRole.id);
-
-  const isBuilder =
-    builderRole &&
-    interaction.member.roles.cache.has(builderRole.id);
-
-  const canClose =
-    session.userId === interaction.user.id ||
-    isStaff ||
-    (session.service && isBuilder) ||
-    moderator(interaction);
-
-  if (!canClose) {
-    return interaction.reply({
-      content:
-        "❌ You don't have permission to close this ticket.",
-      ephemeral: true
-    });
-  }
-
-  await interaction.reply({
-    content: "🔒 Closing this ticket in 5 seconds..."
-  });
-
-  ticketSessions.delete(channel.id);
-
-  setTimeout(async () => {
-    try {
-      await channel.delete("TVB Assistant ticket closed");
-    } catch (error) {
-      console.error("Could not delete ticket:", error);
-    }
-  }, 5000);
-}
-
-/* =========================================================
-   APPLICATION START
-========================================================= */
-
-async function startApplication(interaction, type) {
+async function startApplication(
+  interaction,
+  type
+) {
   const application = APPS[type];
 
   if (!application) {
@@ -1022,11 +1131,14 @@ async function startApplication(interaction, type) {
       answers: []
     };
 
-    appSessions.set(interaction.user.id, session);
+    appSessions.set(
+      interaction.user.id,
+      session
+    );
 
     await interaction.reply({
       content:
-        `📋 **${application.label} started!**\n\nI've sent you a DM with your questions.`,
+        `📋 **${application.label} started!**\n\nI've sent you a DM with your questions.\n\n⚠️ Make sure your Discord DMs are enabled.`,
       ephemeral: true
     });
 
@@ -1049,16 +1161,25 @@ async function startApplication(interaction, type) {
       ]
     });
 
-    await sendNextApplicationQuestion(dm, session);
+    await sendNextApplicationQuestion(
+      dm,
+      session
+    );
   } catch (error) {
-    console.error("Could not start application:", error);
+    console.error(
+      "Could not start application:",
+      error
+    );
 
     appSessions.delete(interaction.user.id);
 
-    if (!interaction.replied && !interaction.deferred) {
+    if (
+      !interaction.replied &&
+      !interaction.deferred
+    ) {
       await interaction.reply({
         content:
-          "❌ I couldn't DM you. Please enable your server DMs.",
+          "❌ I couldn't DM you. Please enable your server DMs and try again.",
         ephemeral: true
       }).catch(() => {});
     }
@@ -1069,15 +1190,26 @@ async function startApplication(interaction, type) {
    APPLICATION QUESTIONS
 ========================================================= */
 
-async function sendNextApplicationQuestion(dm, session) {
+async function sendNextApplicationQuestion(
+  dm,
+  session
+) {
   const application = APPS[session.type];
 
-  if (session.questionIndex >= application.q.length) {
-    return finishApplication(dm, session);
+  if (
+    session.questionIndex >=
+    application.q.length
+  ) {
+    return finishApplication(
+      dm,
+      session
+    );
   }
 
   const question =
-    application.q[session.questionIndex];
+    application.q[
+      session.questionIndex
+    ];
 
   await dm.send({
     embeds: [
@@ -1100,88 +1232,113 @@ async function sendNextApplicationQuestion(dm, session) {
    FINISH APPLICATION
 ========================================================= */
 
-async function finishApplication(dm, session) {
+async function finishApplication(
+  dm,
+  session
+) {
   const application = APPS[session.type];
 
   try {
-    const guild = await client.guilds.fetch(session.guildId);
+    const guild =
+      await client.guilds.fetch(
+        session.guildId
+      );
 
-    const member = await guild.members.fetch(
-      session.userId
-    );
+    const member =
+      await guild.members.fetch(
+        session.userId
+      );
 
-    const submissionChannel = findText(
-      guild,
-      application.channel
-    );
+    const submissionChannel =
+      findText(
+        guild,
+        application.channel
+      );
 
     if (!submissionChannel) {
       await dm.send({
-        content:
-          `❌ Your application was completed, but I couldn't find ${application.channel}.`
+        embeds: [
+          embed(
+            "❌ Application Finished",
+            [
+              "Your application was completed,",
+              `but I couldn't find **${application.channel}**.`,
+              "",
+              "Please contact a server administrator."
+            ].join("\n"),
+            0xed4245
+          )
+        ]
       });
 
-      appSessions.delete(session.userId);
+      appSessions.delete(
+        session.userId
+      );
+
       return;
     }
 
     const applicationId =
       `${session.type}-${member.id}-${Date.now()}`;
 
-    const answersText = application.q
-      .map(
-        (question, index) =>
-          `**${index + 1}. ${question}**\n> ${
-            session.answers[index] ||
-            "No answer provided."
-          }`
-      )
-      .join("\n\n");
-
-    const submissionEmbed = new EmbedBuilder()
-      .setColor(0x7c5cff)
-      .setTitle(
-        `${application.emoji} New ${application.label}`
-      )
-      .setDescription(
-        [
-          `**Applicant:** ${member}`,
-          `**Username:** ${member.user.tag}`,
-          `**User ID:** ${member.id}`,
-          "",
-          answersText
-        ].join("\n")
-      )
-      .setFooter({
-        text: `Application ID: ${applicationId}`
-      })
-      .setTimestamp();
-
-    const buttons = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(
-          `app-accept-${session.type}-${member.id}`
+    const answersText =
+      application.q
+        .map(
+          (question, index) =>
+            `**${index + 1}. ${question}**\n> ${
+              session.answers[index] ||
+              "No answer provided."
+            }`
         )
-        .setLabel("Accept")
-        .setEmoji("✅")
-        .setStyle(ButtonStyle.Success),
+        .join("\n\n");
 
-      new ButtonBuilder()
-        .setCustomId(
-          `app-deny-${session.type}-${member.id}`
+    const submissionEmbed =
+      new EmbedBuilder()
+        .setColor(0x7c5cff)
+        .setTitle(
+          `${application.emoji} New ${application.label}`
         )
-        .setLabel("Deny")
-        .setEmoji("❌")
-        .setStyle(ButtonStyle.Danger),
+        .setDescription(
+          [
+            `**Applicant:** ${member}`,
+            `**Username:** ${member.user.tag}`,
+            `**User ID:** ${member.id}`,
+            "",
+            answersText
+          ].join("\n")
+        )
+        .setFooter({
+          text:
+            `Application ID: ${applicationId}`
+        })
+        .setTimestamp();
 
-      new ButtonBuilder()
-        .setCustomId(
-          `app-blacklist-${session.type}-${member.id}`
-        )
-        .setLabel("Blacklist")
-        .setEmoji("🚫")
-        .setStyle(ButtonStyle.Secondary)
-    );
+    const buttons =
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(
+            `app-accept-${session.type}-${member.id}`
+          )
+          .setLabel("Accept")
+          .setEmoji("✅")
+          .setStyle(ButtonStyle.Success),
+
+        new ButtonBuilder()
+          .setCustomId(
+            `app-deny-${session.type}-${member.id}`
+          )
+          .setLabel("Deny")
+          .setEmoji("❌")
+          .setStyle(ButtonStyle.Danger),
+
+        new ButtonBuilder()
+          .setCustomId(
+            `app-blacklist-${session.type}-${member.id}`
+          )
+          .setLabel("Blacklist")
+          .setEmoji("🚫")
+          .setStyle(ButtonStyle.Secondary)
+      );
 
     await submissionChannel.send({
       embeds: [submissionEmbed],
@@ -1204,16 +1361,23 @@ async function finishApplication(dm, session) {
       ]
     });
 
-    appSessions.delete(session.userId);
+    appSessions.delete(
+      session.userId
+    );
   } catch (error) {
-    console.error("Could not finish application:", error);
+    console.error(
+      "Could not finish application:",
+      error
+    );
 
     await dm.send({
       content:
         "❌ Something went wrong while submitting your application. Please contact staff."
     }).catch(() => {});
 
-    appSessions.delete(session.userId);
+    appSessions.delete(
+      session.userId
+    );
   }
 }
 
@@ -1224,22 +1388,31 @@ async function finishApplication(dm, session) {
 async function handleApplicationDM(message) {
   if (message.author.bot) return;
 
-  const session = appSessions.get(message.author.id);
+  const session =
+    appSessions.get(
+      message.author.id
+    );
 
   if (!session) return;
 
-  const answer = message.content.trim();
+  const answer =
+    message.content.trim();
 
   if (!answer) return;
 
-  if (answer.toLowerCase() === "cancel") {
-    appSessions.delete(message.author.id);
+  if (
+    answer.toLowerCase() ===
+    "cancel"
+  ) {
+    appSessions.delete(
+      message.author.id
+    );
 
     await message.channel.send({
       embeds: [
         embed(
           "❌ Application Cancelled",
-          "Your application has been cancelled. You can start a new one whenever you're ready.",
+          "Your application has been cancelled. You can start a new one from the server whenever you are ready.",
           0xed4245
         )
       ]
@@ -1271,8 +1444,11 @@ async function handleApplicationDM(message) {
    APPLICATION ACTIONS
 ========================================================= */
 
-async function handleApplicationAction(interaction) {
-  const parts = interaction.customId.split("-");
+async function handleApplicationAction(
+  interaction
+) {
+  const parts =
+    interaction.customId.split("-");
 
   const action = parts[1];
   const type = parts[2];
@@ -1294,9 +1470,10 @@ async function handleApplicationAction(interaction) {
     });
   }
 
-  const member = await interaction.guild.members
-    .fetch(userId)
-    .catch(() => null);
+  const member =
+    await interaction.guild.members
+      .fetch(userId)
+      .catch(() => null);
 
   if (!member) {
     return interaction.reply({
@@ -1306,29 +1483,46 @@ async function handleApplicationAction(interaction) {
     });
   }
 
-  const roles =
-    type === "staff"
-      ? {
-          accepted: ["staff team", "helper"],
-          blacklist: ["staff application blacklist"]
-        }
-      : {
-          accepted: ["builder"],
-          blacklist: ["builder application blacklist"]
-        };
+  let acceptedNames;
+  let blacklistNames;
+
+  if (type === "staff") {
+    acceptedNames = [
+      "staff team",
+      "helper"
+    ];
+
+    blacklistNames = [
+      "staff application blacklist"
+    ];
+  } else {
+    acceptedNames = [
+      "builder"
+    ];
+
+    blacklistNames = [
+      "builder application blacklist"
+    ];
+  }
 
   if (action === "accept") {
     const added = [];
 
-    for (const roleName of roles.accepted) {
-      const role = findRole(
-        interaction.guild,
-        [roleName]
-      );
+    for (
+      const roleName of acceptedNames
+    ) {
+      const role =
+        findRoleByName(
+          interaction.guild,
+          roleName
+        );
 
       if (!role) continue;
 
-      if (!botCanManageRole(interaction.guild, role)) {
+      if (
+        role.position >=
+        interaction.guild.members.me.roles.highest.position
+      ) {
         continue;
       }
 
@@ -1337,17 +1531,19 @@ async function handleApplicationAction(interaction) {
         added.push(`${role}`);
       } catch (error) {
         console.error(
-          `Could not add role ${role.name}:`,
+          "Could not add application role:",
           error
         );
       }
     }
 
-    return interaction.update({
+    await interaction.update({
       embeds: [
         new EmbedBuilder()
           .setColor(0x57f287)
-          .setTitle("✅ Application Accepted")
+          .setTitle(
+            "✅ Application Accepted"
+          )
           .setDescription(
             [
               `**Applicant:** ${member}`,
@@ -1356,21 +1552,25 @@ async function handleApplicationAction(interaction) {
               "",
               added.length
                 ? `Roles added: ${added.join(", ")}`
-                : "⚠️ No matching manageable roles were found."
+                : "⚠️ No matching roles were found."
             ].join("\n")
           )
           .setTimestamp()
       ],
       components: []
     });
+
+    return;
   }
 
   if (action === "deny") {
-    return interaction.update({
+    await interaction.update({
       embeds: [
         new EmbedBuilder()
           .setColor(0xed4245)
-          .setTitle("❌ Application Denied")
+          .setTitle(
+            "❌ Application Denied"
+          )
           .setDescription(
             [
               `**Applicant:** ${member}`,
@@ -1382,23 +1582,26 @@ async function handleApplicationAction(interaction) {
       ],
       components: []
     });
+
+    return;
   }
 
   if (action === "blacklist") {
-    const blacklistRole = findRole(
-      interaction.guild,
-      roles.blacklist
-    );
+    const blacklistRole =
+      findRoleByNames(
+        interaction.guild,
+        blacklistNames
+      );
 
     if (
       blacklistRole &&
-      botCanManageRole(
-        interaction.guild,
-        blacklistRole
-      )
+      blacklistRole.position <
+        interaction.guild.members.me.roles.highest.position
     ) {
       try {
-        await member.roles.add(blacklistRole);
+        await member.roles.add(
+          blacklistRole
+        );
       } catch (error) {
         console.error(
           "Could not add blacklist role:",
@@ -1407,11 +1610,13 @@ async function handleApplicationAction(interaction) {
       }
     }
 
-    return interaction.update({
+    await interaction.update({
       embeds: [
         new EmbedBuilder()
           .setColor(0x2b2d31)
-          .setTitle("🚫 Application Blacklisted")
+          .setTitle(
+            "🚫 Application Blacklisted"
+          )
           .setDescription(
             [
               `**Applicant:** ${member}`,
@@ -1419,7 +1624,7 @@ async function handleApplicationAction(interaction) {
               `Blacklisted by: ${interaction.user}`,
               "",
               blacklistRole
-                ? `Blacklist role: ${blacklistRole}`
+                ? `Added ${blacklistRole}`
                 : "⚠️ Blacklist role was not found."
             ].join("\n")
           )
@@ -1431,7 +1636,7 @@ async function handleApplicationAction(interaction) {
 }
 
 /* =========================================================
-   BUTTON ROLES
+   EMOJI SYSTEM
 ========================================================= */
 
 function parseEmoji(input) {
@@ -1445,12 +1650,15 @@ function parseEmoji(input) {
     return {
       name: match[1],
       id: match[2],
-      animated: input.startsWith("<a:")
+      animated:
+        input.startsWith("<a:")
     };
   }
 
   if (
-    /^\p{Extended_Pictographic}$/u.test(input)
+    /^\p{Extended_Pictographic}$/u.test(
+      input
+    )
   ) {
     return input;
   }
@@ -1458,52 +1666,89 @@ function parseEmoji(input) {
   return null;
 }
 
-function buildRoleButton(role, emoji) {
-  const button = new ButtonBuilder()
-    .setCustomId(`role-${role.id}`)
-    .setLabel(role.name)
-    .setStyle(ButtonStyle.Secondary);
+function buildRoleButton(
+  role,
+  emoji
+) {
+  const button =
+    new ButtonBuilder()
+      .setCustomId(
+        `role-${role.id}`
+      )
+      .setLabel(
+        role.name
+      )
+      .setStyle(
+        ButtonStyle.Secondary
+      );
 
-  const parsed = parseEmoji(emoji);
+  const parsed =
+    parseEmoji(emoji);
 
   if (parsed) {
-    if (typeof parsed === "string") {
+    if (
+      typeof parsed === "string"
+    ) {
       button.setEmoji(parsed);
     } else {
-      button.setEmoji(parsed);
+      button.setEmoji({
+        name: parsed.name,
+        id: parsed.id,
+        animated: parsed.animated
+      });
     }
   }
 
   return button;
 }
 
-async function sendButtonRolePanel(interaction) {
-  const cfg = guildConfig(interaction.guild.id);
+/* =========================================================
+   BUTTON ROLE PANEL
+========================================================= */
+
+async function sendButtonRolePanel(
+  interaction
+) {
+  const cfg =
+    guildConfig(
+      interaction.guild.id
+    );
 
   if (!cfg.buttonRoles.length) {
     return interaction.reply({
       content:
-        "❌ No button roles configured. Use `/buttonrole add` first.",
+        "❌ No button roles have been configured yet. Use `/buttonrole add` first.",
       ephemeral: true
     });
   }
 
   const rows = [];
-  let row = new ActionRowBuilder();
+  let row =
+    new ActionRowBuilder();
 
-  for (const item of cfg.buttonRoles) {
+  for (
+    const item of cfg.buttonRoles
+  ) {
     const role =
-      interaction.guild.roles.cache.get(item.roleId);
+      interaction.guild.roles.cache.get(
+        item.roleId
+      );
 
     if (!role) continue;
 
     row.addComponents(
-      buildRoleButton(role, item.emoji)
+      buildRoleButton(
+        role,
+        item.emoji
+      )
     );
 
-    if (row.components.length === 5) {
+    if (
+      row.components.length === 5
+    ) {
       rows.push(row);
-      row = new ActionRowBuilder();
+      row =
+        new ActionRowBuilder();
     }
   }
 
@@ -1511,21 +1756,25 @@ async function sendButtonRolePanel(interaction) {
     rows.push(row);
   }
 
-  const panel = new EmbedBuilder()
-    .setColor(0x7c5cff)
-    .setTitle("🔘 TVB Role Selection")
-    .setDescription(
-      [
-        "Choose the roles you want.",
-        "",
-        "Click a button to **add or remove** a role.",
-        "",
-        "✨ You can change your roles whenever you want."
-      ].join("\n")
-    )
-    .setFooter({
-      text: "TVB Assistant • Button Roles"
-    });
+  const panel =
+    new EmbedBuilder()
+      .setColor(0x7c5cff)
+      .setTitle(
+        "🔘 TVB Role Selection"
+      )
+      .setDescription(
+        [
+          "Choose the roles you want.",
+          "",
+          "Click a button to **add or remove** a role.",
+          "",
+          "✨ You can change your roles whenever you want."
+        ].join("\n")
+      )
+      .setFooter({
+        text:
+          "TVB Assistant • Button Roles"
+      });
 
   await interaction.channel.send({
     embeds: [panel],
@@ -1533,17 +1782,29 @@ async function sendButtonRolePanel(interaction) {
   });
 
   return interaction.reply({
-    content: "✅ Button-role panel posted!",
+    content:
+      "✅ Button-role panel posted!",
     ephemeral: true
   });
 }
 
-async function toggleButtonRole(interaction) {
+/* =========================================================
+   TOGGLE BUTTON ROLE
+========================================================= */
+
+async function toggleButtonRole(
+  interaction
+) {
   const roleId =
-    interaction.customId.replace("role-", "");
+    interaction.customId.replace(
+      "role-",
+      ""
+    );
 
   const role =
-    interaction.guild.roles.cache.get(roleId);
+    interaction.guild.roles.cache.get(
+      roleId
+    );
 
   if (!role) {
     return interaction.reply({
@@ -1553,22 +1814,30 @@ async function toggleButtonRole(interaction) {
     });
   }
 
-  const botMember = interaction.guild.members.me;
+  const botMember =
+    interaction.guild.members.me;
 
   if (
     !botMember ||
-    role.position >= botMember.roles.highest.position
+    role.position >=
+      botMember.roles.highest.position
   ) {
     return interaction.reply({
       content:
-        "❌ I can't manage that role. Put my bot role above it.",
+        "❌ I can't manage that role. Make sure my bot role is above it.",
       ephemeral: true
     });
   }
 
   try {
-    if (interaction.member.roles.cache.has(role.id)) {
-      await interaction.member.roles.remove(role);
+    if (
+      interaction.member.roles.cache.has(
+        role.id
+      )
+    ) {
+      await interaction.member.roles.remove(
+        role
+      );
 
       return interaction.reply({
         content:
@@ -1577,7 +1846,9 @@ async function toggleButtonRole(interaction) {
       });
     }
 
-    await interaction.member.roles.add(role);
+    await interaction.member.roles.add(
+      role
+    );
 
     return interaction.reply({
       content:
@@ -1585,11 +1856,14 @@ async function toggleButtonRole(interaction) {
       ephemeral: true
     });
   } catch (error) {
-    console.error("Button role error:", error);
+    console.error(
+      "Button role error:",
+      error
+    );
 
     return interaction.reply({
       content:
-        "❌ I couldn't change that role.",
+        "❌ I couldn't change that role. Check my bot permissions and role position.",
       ephemeral: true
     });
   }
@@ -1601,7 +1875,6 @@ async function toggleButtonRole(interaction) {
 
 async function handleTeamAction(
   interaction,
-  team,
   action
 ) {
   if (!manager(interaction)) {
@@ -1613,16 +1886,24 @@ async function handleTeamAction(
   }
 
   const member =
-    interaction.options.getMember("member");
+    interaction.options.getMember(
+      "member"
+    );
 
   const fromRole =
-    interaction.options.getRole("fromrole");
+    interaction.options.getRole(
+      "fromrole"
+    );
 
   const toRole =
-    interaction.options.getRole("torole");
+    interaction.options.getRole(
+      "torole"
+    );
 
   const message =
-    interaction.options.getString("message");
+    interaction.options.getString(
+      "message"
+    );
 
   if (!member) {
     return interaction.reply({
@@ -1635,11 +1916,18 @@ async function handleTeamAction(
   const botMember =
     interaction.guild.members.me;
 
+  if (!botMember) {
+    return interaction.reply({
+      content:
+        "❌ I could not find my bot member in this server.",
+      ephemeral: true
+    });
+  }
+
   if (
     fromRole &&
-    (!botMember ||
-      fromRole.position >=
-        botMember.roles.highest.position)
+    fromRole.position >=
+      botMember.roles.highest.position
   ) {
     return interaction.reply({
       content:
@@ -1650,9 +1938,8 @@ async function handleTeamAction(
 
   if (
     toRole &&
-    (!botMember ||
-      toRole.position >=
-        botMember.roles.highest.position)
+    toRole.position >=
+      botMember.roles.highest.position
   ) {
     return interaction.reply({
       content:
@@ -1664,16 +1951,24 @@ async function handleTeamAction(
   try {
     if (
       fromRole &&
-      member.roles.cache.has(fromRole.id)
+      member.roles.cache.has(
+        fromRole.id
+      )
     ) {
-      await member.roles.remove(fromRole);
+      await member.roles.remove(
+        fromRole
+      );
     }
 
     if (
       toRole &&
-      !member.roles.cache.has(toRole.id)
+      !member.roles.cache.has(
+        toRole.id
+      )
     ) {
-      await member.roles.add(toRole);
+      await member.roles.add(
+        toRole
+      );
     }
 
     const actionLabels = {
@@ -1684,21 +1979,22 @@ async function handleTeamAction(
     };
 
     const title =
-      actionLabels[action] || action;
+      actionLabels[action] ||
+      action;
 
-    const defaults = {
-      hire: "Welcome {user}!",
-      fire:
-        "Thank you for your time with the team.",
-      promote:
-        "Congratulations on your promotion!",
-      demote:
-        "Thank you for your continued work with the team."
-    };
+    const defaultMessage =
+      action === "hire"
+        ? "Welcome to the team!"
+        : action === "fire"
+          ? "Thank you for your time with the team."
+          : action === "promote"
+            ? "Congratulations on your promotion!"
+            : "Thank you for your continued work with the team.";
 
     const finalMessage =
       replacePlaceholders(
-        message || defaults[action],
+        message ||
+          defaultMessage,
         {
           user: member,
           server: interaction.guild,
@@ -1725,7 +2021,10 @@ async function handleTeamAction(
       ephemeral: true
     });
   } catch (error) {
-    console.error("Team action error:", error);
+    console.error(
+      "Team action error:",
+      error
+    );
 
     return interaction.reply({
       content:
@@ -1736,49 +2035,63 @@ async function handleTeamAction(
 }
 
 /* =========================================================
-   UPDATE
+   UPDATE EMBED
 ========================================================= */
 
-function updateMessage(
+function updateEmbed(
   type,
   title,
   description,
   extra
 ) {
-  const labels = {
+  const typeLabels = {
     feature: "✨ Feature",
     update: "🔄 Update",
     announcement: "📢 Announcement",
     important: "⚠️ Important"
   };
 
-  return [
-    `## ${labels[type] || "📢 Update"} — ${title}`,
-    "",
-    description,
-    extra
-      ? `\n||${extra}||`
-      : ""
-  ].join("\n");
+  return new EmbedBuilder()
+    .setColor(0x7c5cff)
+    .setTitle(
+      `${typeLabels[type] || "📢 Update"} • ${title}`
+    )
+    .setDescription(
+      [
+        description,
+        "",
+        extra
+          ? `||${extra}||`
+          : ""
+      ].join("\n")
+    )
+    .setFooter({
+      text:
+        "TVB Assistant • Updates"
+    })
+    .setTimestamp();
 }
 
 /* =========================================================
-   GIVEAWAYS
+   GIVEAWAY HELPERS
 ========================================================= */
 
 function parseDuration(input) {
-  if (!input) return null;
-
-  const match = String(input)
-    .trim()
-    .toLowerCase()
-    .match(
-      /^(\d+)\s*(s|m|h|d|w)$/
-    );
+  const match =
+    String(input)
+      .trim()
+      .toLowerCase()
+      .match(
+        /^(\d+)\s*(s|m|h|d|w)$/
+      );
 
   if (!match) return null;
 
-  const amount = Number(match[1]);
+  const amount =
+    Number(match[1]);
+
+  const unit =
+    match[2];
 
   const multipliers = {
     s: 1000,
@@ -1788,65 +2101,283 @@ function parseDuration(input) {
     w: 7 * 24 * 60 * 60 * 1000
   };
 
-  return amount * multipliers[match[2]];
+  return amount * multipliers[unit];
 }
 
-function giveawayButton(giveaway) {
+function giveawayTimeLeft(endAt) {
+  const difference =
+    endAt - Date.now();
+
+  if (difference <= 0) {
+    return "Ended";
+  }
+
+  const seconds =
+    Math.floor(
+      difference / 1000
+    );
+
+  const days =
+    Math.floor(
+      seconds / 86400
+    );
+
+  const hours =
+    Math.floor(
+      (seconds % 86400) / 3600
+    );
+
+  const minutes =
+    Math.floor(
+      (seconds % 3600) / 60
+    );
+
+  const secs =
+    seconds % 60;
+
+  const parts = [];
+
+  if (days) {
+    parts.push(`${days}d`);
+  }
+
+  if (hours) {
+    parts.push(`${hours}h`);
+  }
+
+  if (minutes) {
+    parts.push(`${minutes}m`);
+  }
+
+  if (secs && parts.length < 3) {
+    parts.push(`${secs}s`);
+  }
+
+  return parts.join(" ") || "less than 1s";
+}
+
+function giveawayButton(giveawayId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`giveaway-enter-${giveaway.id}`)
+      .setCustomId(
+        `giveaway-enter-${giveawayId}`
+      )
       .setLabel("Enter Giveaway")
       .setEmoji("🎉")
       .setStyle(ButtonStyle.Success)
   );
 }
 
-function giveawayEmbed(giveaway, ended = false) {
-  const timeText = ended
-    ? "🎉 **ENDED**"
-    : `<t:${Math.floor(
-        giveaway.endsAt / 1000
-      )}:R>`;
+function giveawayEmbed(
+  giveaway,
+  ended = false,
+  winners = []
+) {
+  if (ended) {
+    return new EmbedBuilder()
+      .setColor(0xed4245)
+      .setTitle("🎉 Giveaway Ended!")
+      .setDescription(
+        [
+          `## 🎁 ${giveaway.prize}`,
+          "",
+          `**Winners:** ${
+            winners.length
+              ? winners.map(id => `<@${id}>`).join(", ")
+              : "No winners"
+          }`,
+          "",
+          `**Hosted by:** <@${giveaway.hostId}>`,
+          `**Entries:** ${giveaway.entries.length}`,
+          "",
+          winners.length
+            ? "Congratulations! 🎉"
+            : "Nobody entered this giveaway."
+        ].join("\n")
+      )
+      .setFooter({
+        text:
+          "TVB Assistant • Giveaway"
+      })
+      .setTimestamp();
+  }
 
   return new EmbedBuilder()
-    .setColor(ended ? 0xed4245 : 0x57f287)
-    .setTitle(
-      ended
-        ? "🎉 Giveaway Ended"
-        : "🎉 GIVEAWAY"
-    )
+    .setColor(0x57f287)
+    .setTitle("🎉 GIVEAWAY!")
     .setDescription(
       [
-        `## ${giveaway.prize}`,
+        `# 🎁 ${giveaway.prize}`,
         "",
-        `🏆 **Winner${giveaway.winners === 1 ? "" : "s"}:** ${giveaway.winners}`,
-        `⏰ **Ends:** ${timeText}`,
+        `**Winners:** ${giveaway.winners}`,
+        `**Ends:** <t:${Math.floor(giveaway.endAt / 1000)}:R>`,
         "",
-        ended
-          ? "This giveaway has ended."
-          : "Click **Enter Giveaway** below to enter!",
+        `**Entries:** ${giveaway.entries.length}`,
+        "",
+        "Click **Enter Giveaway** below to enter!",
         "",
         `Hosted by: <@${giveaway.hostId}>`
       ].join("\n")
     )
     .setFooter({
-      text: `Giveaway ID: ${giveaway.id}`
+      text:
+        "TVB Assistant • Giveaway"
     })
     .setTimestamp();
 }
 
-async function startGiveaway(
-  interaction,
-  durationInput,
-  winners,
-  prize
+async function chooseGiveawayWinners(
+  giveaway
 ) {
-  const duration = parseDuration(durationInput);
+  const entries =
+    Array.from(
+      new Set(
+        giveaway.entries || []
+      )
+    );
+
+  const winners = [];
+
+  const count =
+    Math.min(
+      giveaway.winners,
+      entries.length
+    );
+
+  const pool = [...entries];
+
+  for (
+    let i = 0;
+    i < count;
+    i++
+  ) {
+    const index =
+      Math.floor(
+        Math.random() *
+          pool.length
+      );
+
+    winners.push(
+      pool[index]
+    );
+
+    pool.splice(
+      index,
+      1
+    );
+  }
+
+  return winners;
+}
+
+async function endGiveaway(
+  guildId,
+  giveawayId,
+  reroll = false
+) {
+  const cfg =
+    guildConfig(guildId);
+
+  const giveaway =
+    cfg.giveaways[giveawayId];
+
+  if (!giveaway) {
+    return null;
+  }
+
+  const guild =
+    client.guilds.cache.get(
+      guildId
+    );
+
+  if (!guild) {
+    return null;
+  }
+
+  const channel =
+    guild.channels.cache.get(
+      giveaway.channelId
+    );
+
+  if (!channel) {
+    delete cfg.giveaways[giveawayId];
+    saveConfig();
+    return null;
+  }
+
+  const message =
+    await channel.messages
+      .fetch(giveaway.messageId)
+      .catch(() => null);
+
+  if (!message) {
+    delete cfg.giveaways[giveawayId];
+    saveConfig();
+    return null;
+  }
+
+  const winners =
+    await chooseGiveawayWinners(
+      giveaway
+    );
+
+  const finalEmbed =
+    giveawayEmbed(
+      giveaway,
+      true,
+      winners
+    );
+
+  await message.edit({
+    embeds: [finalEmbed],
+    components: []
+  });
+
+  if (winners.length) {
+    await channel.send({
+      content:
+        `🎉 Congratulations ${winners.map(id => `<@${id}>`).join(", ")}! You won **${giveaway.prize}**!`
+    });
+  } else {
+    await channel.send({
+      content:
+        `🎉 The giveaway for **${giveaway.prize}** ended, but nobody entered.`
+    });
+  }
+
+  delete cfg.giveaways[giveawayId];
+  saveConfig();
+
+  return winners;
+}
+
+async function startGiveaway(
+  interaction
+) {
+  const durationInput =
+    interaction.options.getString(
+      "duration"
+    );
+
+  const winners =
+    interaction.options.getInteger(
+      "winners"
+    );
+
+  const prize =
+    interaction.options.getString(
+      "prize"
+    );
+
+  const duration =
+    parseDuration(
+      durationInput
+    );
 
   if (!duration) {
     return interaction.reply({
       content:
-        "❌ Invalid duration. Use formats like `10m`, `2h`, `1d`, or `1w`.",
+        "❌ Invalid duration. Examples: `30s`, `10m`, `2h`, `7d`.",
       ephemeral: true
     });
   }
@@ -1859,75 +2390,108 @@ async function startGiveaway(
     });
   }
 
-  if (winners < 1 || winners > 20) {
-    return interaction.reply({
-      content:
-        "❌ Winners must be between 1 and 20.",
-      ephemeral: true
-    });
-  }
-
-  const cfg = guildConfig(interaction.guild.id);
+  const giveawayId =
+    `${interaction.guild.id}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
 
   const giveaway = {
-    id:
-      `${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`,
+    id: giveawayId,
     guildId: interaction.guild.id,
     channelId: interaction.channel.id,
+    messageId: null,
     hostId: interaction.user.id,
     prize,
     winners,
-    endsAt: Date.now() + duration,
     entries: [],
-    messageId: null,
-    ended: false
+    endAt: Date.now() + duration
   };
 
-  const message = await interaction.channel.send({
-    embeds: [giveawayEmbed(giveaway)],
-    components: [giveawayButton(giveaway)]
-  });
+  const message =
+    await interaction.channel.send({
+      embeds: [
+        giveawayEmbed(
+          giveaway
+        )
+      ],
+      components: [
+        giveawayButton(
+          giveawayId
+        )
+      ]
+    });
 
-  giveaway.messageId = message.id;
+  giveaway.messageId =
+    message.id;
 
-  cfg.giveaways.push(giveaway);
+  const cfg =
+    guildConfig(
+      interaction.guild.id
+    );
+
+  cfg.giveaways[giveawayId] =
+    giveaway;
+
   saveConfig();
 
   await interaction.reply({
     content:
-      "✅ Giveaway started!",
+      `✅ Giveaway started! It will end in **${giveawayTimeLeft(giveaway.endAt)}**.`,
     ephemeral: true
   });
 
-  scheduleGiveaway(giveaway);
+  setTimeout(
+    () =>
+      endGiveaway(
+        interaction.guild.id,
+        giveawayId
+      ).catch(error =>
+        console.error(
+          "Giveaway end error:",
+          error
+        )
+      ),
+    duration
+  );
 }
 
-async function enterGiveaway(interaction, giveawayId) {
-  const cfg = guildConfig(interaction.guild.id);
+async function enterGiveaway(
+  interaction
+) {
+  const giveawayId =
+    interaction.customId.replace(
+      "giveaway-enter-",
+      ""
+    );
 
-  const giveaway = cfg.giveaways.find(
-    g => g.id === giveawayId
-  );
+  const cfg =
+    guildConfig(
+      interaction.guild.id
+    );
 
-  if (!giveaway || giveaway.ended) {
+  const giveaway =
+    cfg.giveaways[giveawayId];
+
+  if (!giveaway) {
     return interaction.reply({
       content:
-        "❌ This giveaway has ended or no longer exists.",
+        "❌ This giveaway has already ended.",
       ephemeral: true
     });
   }
 
-  if (Date.now() >= giveaway.endsAt) {
+  if (
+    Date.now() >=
+    giveaway.endAt
+  ) {
     await endGiveaway(
-      interaction.guild,
-      giveaway
+      interaction.guild.id,
+      giveawayId
     );
 
     return interaction.reply({
       content:
-        "❌ This giveaway has just ended.",
+        "❌ This giveaway has already ended.",
       ephemeral: true
     });
   }
@@ -1939,7 +2503,7 @@ async function enterGiveaway(interaction, giveawayId) {
   ) {
     return interaction.reply({
       content:
-        "❌ You are already entered!",
+        "⚠️ You are already entered in this giveaway!",
       ephemeral: true
     });
   }
@@ -1950,6 +2514,22 @@ async function enterGiveaway(interaction, giveawayId) {
 
   saveConfig();
 
+  const message =
+    interaction.message;
+
+  await message.edit({
+    embeds: [
+      giveawayEmbed(
+        giveaway
+      )
+    ],
+    components: [
+      giveawayButton(
+        giveawayId
+      )
+    ]
+  }).catch(() => {});
+
   return interaction.reply({
     content:
       "🎉 You have entered the giveaway!",
@@ -1957,257 +2537,169 @@ async function enterGiveaway(interaction, giveawayId) {
   });
 }
 
-async function endGiveaway(
-  guild,
-  giveaway
+/* =========================================================
+   GIVEAWAY REROLL
+========================================================= */
+
+async function rerollGiveaway(
+  interaction
 ) {
-  if (giveaway.ended) return;
-
-  giveaway.ended = true;
-
-  const uniqueEntries = [
-    ...new Set(giveaway.entries)
-  ];
-
-  const shuffled = [...uniqueEntries];
-
-  for (
-    let i = shuffled.length - 1;
-    i > 0;
-    i--
-  ) {
-    const j =
-      Math.floor(
-        Math.random() * (i + 1)
-      );
-
-    [shuffled[i], shuffled[j]] =
-      [shuffled[j], shuffled[i]];
-  }
-
-  const winners = shuffled.slice(
-    0,
-    Math.min(
-      giveaway.winners,
-      shuffled.length
-    )
-  );
-
   const channel =
-    guild.channels.cache.get(
-      giveaway.channelId
+    interaction.options.getChannel(
+      "channel"
     );
 
-  if (channel) {
-    const message =
-      await channel.messages
-        .fetch(giveaway.messageId)
-        .catch(() => null);
-
-    if (message) {
-      await message.edit({
-        embeds: [
-          giveawayEmbed(
-            giveaway,
-            true
-          )
-        ],
-        components: []
-      }).catch(() => {});
-    }
-
-    if (winners.length) {
-      await channel.send({
-        content: [
-          "🎉 **GIVEAWAY WINNER!**",
-          "",
-          `Prize: **${giveaway.prize}**`,
-          "",
-          `Congratulations ${winners
-            .map(id => `<@${id}>`)
-            .join(", ")}!`
-        ].join("\n")
-      });
-    } else {
-      await channel.send({
-        content: [
-          "🎉 **Giveaway ended!**",
-          "",
-          `Prize: **${giveaway.prize}**`,
-          "",
-          "❌ There were no entries."
-        ].join("\n")
-      });
-    }
-  }
-
-  saveConfig();
-}
-
-function scheduleGiveaway(giveaway) {
-  const delay =
-    Math.max(
-      1000,
-      giveaway.endsAt - Date.now()
+  const messageId =
+    interaction.options.getString(
+      "message_id"
     );
 
-  setTimeout(async () => {
-    try {
-      const guild =
-        client.guilds.cache.get(
-          giveaway.guildId
-        );
-
-      if (!guild) return;
-
-      await endGiveaway(
-        guild,
-        giveaway
-      );
-    } catch (error) {
-      console.error(
-        "Giveaway ending error:",
-        error
-      );
-    }
-  }, delay);
-}
-
-function restoreGiveaways() {
-  for (const guild of client.guilds.cache.values()) {
-    const cfg = guildConfig(guild.id);
-
-    for (const giveaway of cfg.giveaways) {
-      if (giveaway.ended) continue;
-
-      if (Date.now() >= giveaway.endsAt) {
-        endGiveaway(
-          guild,
-          giveaway
-        ).catch(error =>
-          console.error(
-            "Could not restore giveaway:",
-            error
-          )
-        );
-      } else {
-        scheduleGiveaway(giveaway);
-      }
-    }
+  if (
+    channel.type !==
+    ChannelType.GuildText
+  ) {
+    return interaction.reply({
+      content:
+        "❌ Please select a text channel.",
+      ephemeral: true
+    });
   }
+
+  const message =
+    await channel.messages
+      .fetch(messageId)
+      .catch(() => null);
+
+  if (!message) {
+    return interaction.reply({
+      content:
+        "❌ I couldn't find that giveaway message.",
+      ephemeral: true
+    });
+  }
+
+  const cfg =
+    guildConfig(
+      interaction.guild.id
+    );
+
+  const giveaway =
+    Object.values(
+      cfg.giveaways
+    ).find(
+      g =>
+        g.messageId ===
+        messageId
+    );
+
+  if (!giveaway) {
+    return interaction.reply({
+      content:
+        "❌ I couldn't find an active giveaway connected to that message.",
+      ephemeral: true
+    });
+  }
+
+  const winners =
+    await chooseGiveawayWinners(
+      giveaway
+    );
+
+  if (!winners.length) {
+    return interaction.reply({
+      content:
+        "❌ There are no eligible entries to reroll.",
+      ephemeral: true
+    });
+  }
+
+  await interaction.reply({
+    content:
+      `🎉 New winner: ${winners.map(id => `<@${id}>`).join(", ")}!`,
+    ephemeral: false
+  });
 }
 
 /* =========================================================
    COMMANDS
 ========================================================= */
 
-const commands = [];
-
-/* PING */
-
-commands.push(
+const commands = [
   new SlashCommandBuilder()
     .setName("ping")
     .setDescription(
       "Check if TVB Assistant is online."
-    )
-);
+    ),
 
-/* TICKET PANEL */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("ticketpanel")
     .setDescription(
       "Post the TVB ticket panel."
-    )
-);
+    ),
 
-/* SERVICE PANEL */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("servicepanel")
     .setDescription(
       "Post the TVB services panel."
-    )
-);
+    ),
 
-/* APPLICATION PANEL */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("applicationpanel")
     .setDescription(
       "Post the TVB application panel."
-    )
-);
+    ),
 
-/* BUTTON ROLE */
-
-const buttonRoleCommand =
   new SlashCommandBuilder()
     .setName("buttonrole")
     .setDescription(
       "Manage button roles."
-    );
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("add")
+        .setDescription(
+          "Add a role to the button panel."
+        )
+        .addRoleOption(option =>
+          option
+            .setName("role")
+            .setDescription(
+              "The role to give."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("emoji")
+            .setDescription(
+              "Emoji to display."
+            )
+            .setRequired(false)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("remove")
+        .setDescription(
+          "Remove a role from the button panel."
+        )
+        .addRoleOption(option =>
+          option
+            .setName("role")
+            .setDescription(
+              "The role to remove."
+            )
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("list")
+        .setDescription(
+          "Show configured button roles."
+        )
+    ),
 
-buttonRoleCommand.addSubcommand(
-  sub =>
-    sub
-      .setName("add")
-      .setDescription(
-        "Add a role to the button panel."
-      )
-      .addRoleOption(option =>
-        option
-          .setName("role")
-          .setDescription(
-            "Role to give."
-          )
-          .setRequired(true)
-      )
-      .addStringOption(option =>
-        option
-          .setName("emoji")
-          .setDescription(
-            "Emoji for the button."
-          )
-          .setRequired(false)
-      )
-);
-
-buttonRoleCommand.addSubcommand(
-  sub =>
-    sub
-      .setName("remove")
-      .setDescription(
-        "Remove a role from the button panel."
-      )
-      .addRoleOption(option =>
-        option
-          .setName("role")
-          .setDescription(
-            "Role to remove."
-          )
-          .setRequired(true)
-      )
-);
-
-buttonRoleCommand.addSubcommand(
-  sub =>
-    sub
-      .setName("list")
-      .setDescription(
-        "List configured button roles."
-      )
-);
-
-commands.push(buttonRoleCommand);
-
-/* WELCOME */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("setwelcome")
     .setDescription(
@@ -2228,15 +2720,11 @@ commands.push(
       option
         .setName("message")
         .setDescription(
-          "Supports {user}, {username}, {server}."
+          "Use {user}, {username}, and {server}."
         )
         .setRequired(true)
-    )
-);
+    ),
 
-/* AUTOROLE */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("setautorole")
     .setDescription(
@@ -2249,16 +2737,12 @@ commands.push(
           "Role new members receive."
         )
         .setRequired(true)
-    )
-);
+    ),
 
-/* TICKET STAFF */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("setticketstaff")
     .setDescription(
-      "Set the Staff Team ticket role."
+      "Set the staff role that can see regular and service tickets."
     )
     .addRoleOption(option =>
       option
@@ -2267,16 +2751,12 @@ commands.push(
           "Staff Team role."
         )
         .setRequired(true)
-    )
-);
+    ),
 
-/* BUILDER TICKET ROLE */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("setbuilderrole")
     .setDescription(
-      "Set the Builder role for service tickets."
+      "Set the Builder role that can see service tickets."
     )
     .addRoleOption(option =>
       option
@@ -2285,51 +2765,39 @@ commands.push(
           "Builder role."
         )
         .setRequired(true)
-    )
-);
+    ),
 
-/* TICKET CATEGORY */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("setticketcategory")
     .setDescription(
-      "Set the ticket category."
+      "Set the category where tickets are created."
     )
     .addChannelOption(option =>
       option
         .setName("category")
         .setDescription(
-          "Category where tickets are created."
+          "Ticket category."
         )
         .addChannelTypes(
           ChannelType.GuildCategory
         )
         .setRequired(true)
-    )
-);
+    ),
 
-/* STAFF */
+  /* =====================================================
+     STAFF COMMANDS
+  ===================================================== */
 
-const staffCommand =
   new SlashCommandBuilder()
     .setName("staff")
     .setDescription(
       "Manage TVB staff."
-    );
-
-for (const action of [
-  "hire",
-  "fire",
-  "promote",
-  "demote"
-]) {
-  staffCommand.addSubcommand(
-    sub =>
+    )
+    .addSubcommand(sub =>
       sub
-        .setName(action)
+        .setName("hire")
         .setDescription(
-          `${action.charAt(0).toUpperCase() + action.slice(1)} a staff member.`
+          "Hire a staff member."
         )
         .addUserOption(option =>
           option
@@ -2359,34 +2827,143 @@ for (const action of [
           option
             .setName("message")
             .setDescription(
-              "Supports {user}, {server}, {fromrole}, {torole}."
+              "Message."
             )
             .setRequired(true)
         )
-  );
-}
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("fire")
+        .setDescription(
+          "Fire a staff member."
+        )
+        .addUserOption(option =>
+          option
+            .setName("member")
+            .setDescription(
+              "Member."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("fromrole")
+            .setDescription(
+              "Current role."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("torole")
+            .setDescription(
+              "Role to move them to."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message")
+            .setDescription(
+              "Message."
+            )
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("promote")
+        .setDescription(
+          "Promote a staff member."
+        )
+        .addUserOption(option =>
+          option
+            .setName("member")
+            .setDescription(
+              "Member."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("fromrole")
+            .setDescription(
+              "Current role."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("torole")
+            .setDescription(
+              "New role."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message")
+            .setDescription(
+              "Message."
+            )
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("demote")
+        .setDescription(
+          "Demote a staff member."
+        )
+        .addUserOption(option =>
+          option
+            .setName("member")
+            .setDescription(
+              "Member."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("fromrole")
+            .setDescription(
+              "Current role."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("torole")
+            .setDescription(
+              "New role."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message")
+            .setDescription(
+              "Message."
+            )
+            .setRequired(true)
+        )
+    ),
 
-commands.push(staffCommand);
+  /* =====================================================
+     BUILDER COMMANDS
+  ===================================================== */
 
-/* BUILDER */
-
-const builderCommand =
   new SlashCommandBuilder()
     .setName("builder")
     .setDescription(
       "Manage TVB builders."
-    );
-
-for (const action of [
-  "hire",
-  "fire"
-]) {
-  builderCommand.addSubcommand(
-    sub =>
+    )
+    .addSubcommand(sub =>
       sub
-        .setName(action)
+        .setName("hire")
         .setDescription(
-          `${action.charAt(0).toUpperCase() + action.slice(1)} a builder.`
+          "Hire a builder."
         )
         .addUserOption(option =>
           option
@@ -2416,18 +2993,133 @@ for (const action of [
           option
             .setName("message")
             .setDescription(
-              "Supports {user}, {server}, {fromrole}, {torole}."
+              "Message."
             )
             .setRequired(true)
         )
-  );
-}
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("fire")
+        .setDescription(
+          "Fire a builder."
+        )
+        .addUserOption(option =>
+          option
+            .setName("member")
+            .setDescription(
+              "Member."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("fromrole")
+            .setDescription(
+              "Current role."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("torole")
+            .setDescription(
+              "Role to move them to."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message")
+            .setDescription(
+              "Message."
+            )
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("promote")
+        .setDescription(
+          "Promote a builder."
+        )
+        .addUserOption(option =>
+          option
+            .setName("member")
+            .setDescription(
+              "Member."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("fromrole")
+            .setDescription(
+              "Current role."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("torole")
+            .setDescription(
+              "New role."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message")
+            .setDescription(
+              "Message."
+            )
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("demote")
+        .setDescription(
+          "Demote a builder."
+        )
+        .addUserOption(option =>
+          option
+            .setName("member")
+            .setDescription(
+              "Member."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("fromrole")
+            .setDescription(
+              "Current role."
+            )
+            .setRequired(true)
+        )
+        .addRoleOption(option =>
+          option
+            .setName("torole")
+            .setDescription(
+              "New role."
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message")
+            .setDescription(
+              "Message."
+            )
+            .setRequired(true)
+        )
+    ),
 
-commands.push(builderCommand);
+  /* =====================================================
+     UPDATE
+  ===================================================== */
 
-/* UPDATE */
-
-commands.push(
   new SlashCommandBuilder()
     .setName("update")
     .setDescription(
@@ -2479,67 +3171,97 @@ commands.push(
       option
         .setName("extra")
         .setDescription(
-          "Extra information hidden inside || ||."
+          "Extra details."
         )
         .setRequired(false)
-    )
-);
+    ),
 
-/* GIVEAWAY */
+  /* =====================================================
+     GIVEAWAY
+  ===================================================== */
 
-const giveawayCommand =
   new SlashCommandBuilder()
     .setName("giveaway")
     .setDescription(
-      "Manage giveaways."
-    );
-
-giveawayCommand.addSubcommand(
-  sub =>
-    sub
-      .setName("start")
-      .setDescription(
-        "Start a giveaway."
-      )
-      .addStringOption(option =>
-        option
-          .setName("duration")
-          .setDescription(
-            "Examples: 10m, 2h, 1d, 1w."
-          )
-          .setRequired(true)
-      )
-      .addIntegerOption(option =>
-        option
-          .setName("winners")
-          .setDescription(
-            "Number of winners."
-          )
-          .setMinValue(1)
-          .setMaxValue(20)
-          .setRequired(true)
-      )
-      .addStringOption(option =>
-        option
-          .setName("prize")
-          .setDescription(
-            "Giveaway prize."
-          )
-          .setRequired(true)
-      )
-);
-
-commands.push(giveawayCommand);
+      "Manage TVB giveaways."
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("start")
+        .setDescription(
+          "Start a giveaway."
+        )
+        .addStringOption(option =>
+          option
+            .setName("duration")
+            .setDescription(
+              "Examples: 10m, 2h, 7d."
+            )
+            .setRequired(true)
+        )
+        .addIntegerOption(option =>
+          option
+            .setName("winners")
+            .setDescription(
+              "Number of winners."
+            )
+            .setMinValue(1)
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("prize")
+            .setDescription(
+              "Giveaway prize."
+            )
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName("reroll")
+        .setDescription(
+          "Reroll an active giveaway."
+        )
+        .addChannelOption(option =>
+          option
+            .setName("channel")
+            .setDescription(
+              "Giveaway channel."
+            )
+            .addChannelTypes(
+              ChannelType.GuildText
+            )
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName("message_id")
+            .setDescription(
+              "Giveaway message ID."
+            )
+            .setRequired(true)
+        )
+    )
+];
 
 /* =========================================================
    COMMAND REGISTRATION
 ========================================================= */
 
-async function registerCommands(guildId) {
+const commandData =
+  commands.map(command =>
+    command.toJSON()
+  );
+
+async function registerCommands(
+  guildId
+) {
   try {
-    const rest = new REST({
-      version: "10"
-    }).setToken(TOKEN);
+    const rest =
+      new REST({
+        version: "10"
+      }).setToken(TOKEN);
 
     await rest.put(
       Routes.applicationGuildCommands(
@@ -2547,14 +3269,12 @@ async function registerCommands(guildId) {
         guildId
       ),
       {
-        body: commands.map(command =>
-          command.toJSON()
-        )
+        body: commandData
       }
     );
 
     console.log(
-      `Commands registered in guild ${guildId}`
+      `Registered commands in ${guildId}`
     );
   } catch (error) {
     console.error(
@@ -2565,131 +3285,287 @@ async function registerCommands(guildId) {
 }
 
 /* =========================================================
+   RESTORE GIVEAWAYS AFTER RESTART
+========================================================= */
+
+async function restoreGiveaways() {
+  for (
+    const guild of
+    client.guilds.cache.values()
+  ) {
+    const cfg =
+      guildConfig(guild.id);
+
+    for (
+      const [giveawayId, giveaway] of
+      Object.entries(cfg.giveaways)
+    ) {
+      const remaining =
+        giveaway.endAt -
+        Date.now();
+
+      if (remaining <= 0) {
+        await endGiveaway(
+          guild.id,
+          giveawayId
+        ).catch(error =>
+          console.error(
+            "Could not restore ended giveaway:",
+            error
+          )
+        );
+      } else {
+        setTimeout(
+          () =>
+            endGiveaway(
+              guild.id,
+              giveawayId
+            ).catch(error =>
+              console.error(
+                "Restored giveaway error:",
+                error
+              )
+            ),
+          remaining
+        );
+      }
+    }
+  }
+}
+
+/* =========================================================
    READY
 ========================================================= */
 
-client.once("ready", async () => {
-  console.log(
-    `Logged in as ${client.user.tag}`
-  );
+let heartbeatTimer = null;
 
-  for (const guild of client.guilds.cache.values()) {
-    await registerCommands(guild.id);
+client.once(
+  "ready",
+  async () => {
+    console.log(
+      `Logged in as ${client.user.tag}`
+    );
+
+    for (
+      const guild of
+      client.guilds.cache.values()
+    ) {
+      await registerCommands(
+        guild.id
+      );
+    }
+
+    await restoreGiveaways();
+
+    console.log(
+      `TVB Assistant is ready in ${client.guilds.cache.size} server(s).`
+    );
+
+    /*
+      ======================================================
+      PERMANENT 5-MINUTE HEARTBEAT
+
+      This timer is created ONCE when the bot starts.
+
+      If Discord reconnects, this code does not create
+      another timer because "ready" is registered with
+      client.once().
+
+      Every 5 minutes it searches for #bot-activity
+      and sends "a".
+      ======================================================
+    */
+
+    if (heartbeatTimer) {
+      clearInterval(
+        heartbeatTimer
+      );
+    }
+
+    heartbeatTimer =
+      setInterval(
+        async () => {
+          try {
+            for (
+              const guild of
+              client.guilds.cache.values()
+            ) {
+              const channel =
+                findText(
+                  guild,
+                  "bot-activity"
+                );
+
+              if (!channel) {
+                console.log(
+                  `#bot-activity not found in ${guild.name}`
+                );
+                continue;
+              }
+
+              try {
+                await channel.send(
+                  "a"
+                );
+
+                console.log(
+                  `Heartbeat sent in #bot-activity (${guild.name})`
+                );
+              } catch (error) {
+                console.error(
+                  `Could not send heartbeat in ${guild.name}:`,
+                  error
+                );
+              }
+            }
+          } catch (error) {
+            console.error(
+              "Heartbeat loop error:",
+              error
+            );
+          }
+        },
+        5 * 60 * 1000
+      );
+
+    console.log(
+      "5-minute #bot-activity heartbeat is running."
+    );
   }
-
-  restoreGiveaways();
-
-  console.log(
-    `TVB Assistant is ready in ${client.guilds.cache.size} server(s).`
-  );
-});
+);
 
 /* =========================================================
    NEW SERVER
 ========================================================= */
 
-client.on("guildCreate", async guild => {
-  guildConfig(guild.id);
-  saveConfig();
+client.on(
+  "guildCreate",
+  async guild => {
+    guildConfig(guild.id);
+    saveConfig();
 
-  await registerCommands(guild.id);
-});
+    await registerCommands(
+      guild.id
+    );
+  }
+);
 
 /* =========================================================
    MEMBER JOIN
 ========================================================= */
 
-client.on("guildMemberAdd", async member => {
-  const cfg = guildConfig(member.guild.id);
-
-  /* AUTOROLE */
-
-  if (cfg.autorole) {
-    const role =
-      member.guild.roles.cache.get(
-        cfg.autorole
+client.on(
+  "guildMemberAdd",
+  async member => {
+    const cfg =
+      guildConfig(
+        member.guild.id
       );
 
-    if (
-      role &&
-      botCanManageRole(
-        member.guild,
-        role
-      )
-    ) {
-      try {
-        await member.roles.add(role);
-      } catch (error) {
-        console.error(
-          "Could not assign autorole:",
-          error
+    /* AUTOROLE */
+
+    if (cfg.autorole) {
+      const role =
+        member.guild.roles.cache.get(
+          cfg.autorole
         );
+
+      const botMember =
+        member.guild.members.me;
+
+      if (
+        role &&
+        botMember &&
+        role.position <
+          botMember.roles.highest.position
+      ) {
+        try {
+          await member.roles.add(
+            role
+          );
+        } catch (error) {
+          console.error(
+            "Could not assign autorole:",
+            error
+          );
+        }
       }
     }
-  }
 
-  /* WELCOME */
+    /* WELCOME */
 
-  if (cfg.welcomeChannel) {
-    const channel =
-      member.guild.channels.cache.get(
-        cfg.welcomeChannel
-      );
-
-    if (
-      channel &&
-      channel.isTextBased()
-    ) {
-      const message =
-        replacePlaceholders(
-          cfg.welcomeMessage,
-          {
-            user: member,
-            server: member.guild
-          }
+    if (cfg.welcomeChannel) {
+      const channel =
+        member.guild.channels.cache.get(
+          cfg.welcomeChannel
         );
 
-      const welcomeEmbed =
-        new EmbedBuilder()
-          .setColor(0x7c5cff)
-          .setTitle("👋 Welcome!")
-          .setDescription(message)
-          .setThumbnail(
-            member.user.displayAvatarURL({
-              size: 256
+      if (
+        channel &&
+        channel.isTextBased()
+      ) {
+        const message =
+          replacePlaceholders(
+            cfg.welcomeMessage,
+            {
+              user: member,
+              server: member.guild
+            }
+          );
+
+        const welcomeEmbed =
+          new EmbedBuilder()
+            .setColor(0x7c5cff)
+            .setTitle(
+              "👋 Welcome!"
+            )
+            .setDescription(
+              message
+            )
+            .setThumbnail(
+              member.user.displayAvatarURL({
+                size: 256
+              })
+            )
+            .setFooter({
+              text:
+                `Member #${member.guild.memberCount}`
             })
-          )
-          .setFooter({
-            text:
-              `Member #${member.guild.memberCount}`
-          })
-          .setTimestamp();
+            .setTimestamp();
 
-      try {
-        await channel.send({
-          embeds: [welcomeEmbed]
-        });
-      } catch (error) {
-        console.error(
-          "Could not send welcome:",
-          error
-        );
+        try {
+          await channel.send({
+            embeds: [
+              welcomeEmbed
+            ]
+          });
+        } catch (error) {
+          console.error(
+            "Could not send welcome message:",
+            error
+          );
+        }
       }
     }
   }
-});
+);
 
 /* =========================================================
    MESSAGE CREATE
 ========================================================= */
 
-client.on("messageCreate", async message => {
-  if (message.author.bot) return;
+client.on(
+  "messageCreate",
+  async message => {
+    if (message.author.bot) return;
 
-  if (!message.guild) {
-    await handleApplicationDM(message);
+    if (!message.guild) {
+      await handleApplicationDM(
+        message
+      );
+    }
   }
-});
+);
 
 /* =========================================================
    INTERACTIONS
@@ -2699,15 +3575,18 @@ client.on(
   "interactionCreate",
   async interaction => {
     try {
-      /* =====================================================
+      /* ===================================================
          SLASH COMMANDS
-      ===================================================== */
+      =================================================== */
 
-      if (interaction.isChatInputCommand()) {
+      if (
+        interaction.isChatInputCommand()
+      ) {
         /* PING */
 
         if (
-          interaction.commandName === "ping"
+          interaction.commandName ===
+          "ping"
         ) {
           return interaction.reply({
             content:
@@ -2722,7 +3601,9 @@ client.on(
           interaction.commandName ===
           "ticketpanel"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -2741,7 +3622,9 @@ client.on(
           interaction.commandName ===
           "servicepanel"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -2760,7 +3643,9 @@ client.on(
           interaction.commandName ===
           "applicationpanel"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -2779,7 +3664,9 @@ client.on(
           interaction.commandName ===
           "buttonrole"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -2796,7 +3683,8 @@ client.on(
             );
 
           if (
-            subcommand === "add"
+            subcommand ===
+            "add"
           ) {
             const role =
               interaction.options.getRole(
@@ -2808,11 +3696,13 @@ client.on(
                 "emoji"
               ) || "🔘";
 
+            const botMember =
+              interaction.guild.members.me;
+
             if (
-              !botCanManageRole(
-                interaction.guild,
-                role
-              )
+              botMember &&
+              role.position >=
+                botMember.roles.highest.position
             ) {
               return interaction.reply({
                 content:
@@ -2823,13 +3713,14 @@ client.on(
 
             const existing =
               cfg.buttonRoles.find(
-                item =>
-                  item.roleId ===
+                r =>
+                  r.roleId ===
                   role.id
               );
 
             if (existing) {
-              existing.emoji = emoji;
+              existing.emoji =
+                emoji;
             } else {
               cfg.buttonRoles.push({
                 roleId: role.id,
@@ -2841,13 +3732,14 @@ client.on(
 
             return interaction.reply({
               content:
-                `✅ **${role.name}** added to the button-role list.`,
+                `✅ **${role.name}** was added to the button-role list with ${emoji}.`,
               ephemeral: true
             });
           }
 
           if (
-            subcommand === "remove"
+            subcommand ===
+            "remove"
           ) {
             const role =
               interaction.options.getRole(
@@ -2856,8 +3748,8 @@ client.on(
 
             cfg.buttonRoles =
               cfg.buttonRoles.filter(
-                item =>
-                  item.roleId !==
+                r =>
+                  r.roleId !==
                   role.id
               );
 
@@ -2865,14 +3757,25 @@ client.on(
 
             return interaction.reply({
               content:
-                `✅ **${role.name}** removed from the button-role list.`,
+                `✅ **${role.name}** was removed from the button-role list.`,
               ephemeral: true
             });
           }
 
           if (
-            subcommand === "list"
+            subcommand ===
+            "list"
           ) {
+            if (
+              !cfg.buttonRoles.length
+            ) {
+              return interaction.reply({
+                content:
+                  "There are currently no button roles configured.",
+                ephemeral: true
+              });
+            }
+
             const list =
               cfg.buttonRoles
                 .map(item => {
@@ -2890,9 +3793,7 @@ client.on(
 
             return interaction.reply({
               content:
-                list
-                  ? `### 🔘 Button Roles\n\n${list}`
-                  : "There are currently no button roles configured.",
+                `### 🔘 Button Roles\n\n${list || "None"}`,
               ephemeral: true
             });
           }
@@ -2904,7 +3805,9 @@ client.on(
           interaction.commandName ===
           "setwelcome"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -2948,7 +3851,9 @@ client.on(
           interaction.commandName ===
           "setautorole"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -2961,11 +3866,13 @@ client.on(
               "role"
             );
 
+          const botMember =
+            interaction.guild.members.me;
+
           if (
-            !botCanManageRole(
-              interaction.guild,
-              role
-            )
+            botMember &&
+            role.position >=
+              botMember.roles.highest.position
           ) {
             return interaction.reply({
               content:
@@ -2986,7 +3893,7 @@ client.on(
 
           return interaction.reply({
             content:
-              `✅ New members will receive **${role.name}** automatically.`,
+              `✅ New members will now receive **${role.name}** automatically.`,
             ephemeral: true
           });
         }
@@ -2997,7 +3904,9 @@ client.on(
           interaction.commandName ===
           "setticketstaff"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -3022,7 +3931,7 @@ client.on(
 
           return interaction.reply({
             content:
-              `✅ Staff Team ticket role set to ${role}.`,
+              `✅ Ticket Staff role set to ${role}. This role can see both regular and service tickets.`,
             ephemeral: true
           });
         }
@@ -3033,7 +3942,9 @@ client.on(
           interaction.commandName ===
           "setbuilderrole"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -3058,7 +3969,7 @@ client.on(
 
           return interaction.reply({
             content:
-              `✅ Builder service-ticket role set to ${role}.`,
+              `✅ Builder role set to ${role}. Builders can now see service tickets but not regular tickets.`,
             ephemeral: true
           });
         }
@@ -3069,7 +3980,9 @@ client.on(
           interaction.commandName ===
           "setticketcategory"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -3094,7 +4007,7 @@ client.on(
 
           return interaction.reply({
             content:
-              `✅ New tickets will be created in **${category.name}**.`,
+              `✅ New tickets will now be created in **${category.name}**.`,
             ephemeral: true
           });
         }
@@ -3107,7 +4020,6 @@ client.on(
         ) {
           return handleTeamAction(
             interaction,
-            "staff",
             interaction.options.getSubcommand()
           );
         }
@@ -3120,7 +4032,6 @@ client.on(
         ) {
           return handleTeamAction(
             interaction,
-            "builder",
             interaction.options.getSubcommand()
           );
         }
@@ -3131,7 +4042,9 @@ client.on(
           interaction.commandName ===
           "update"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use this command.",
@@ -3160,40 +4073,25 @@ client.on(
             );
 
           const updatesRole =
-            findRole(
-              interaction.guild,
-              ["updates"]
+            interaction.guild.roles.cache.find(
+              role =>
+                role.name.toLowerCase() ===
+                "updates"
             );
 
           await interaction.channel.send({
             content:
               updatesRole
                 ? `${updatesRole}`
-                : "@updates",
-
-            allowedMentions: {
-              roles:
-                updatesRole
-                  ? [updatesRole.id]
-                  : []
-            },
+                : "",
 
             embeds: [
-              new EmbedBuilder()
-                .setColor(0x7c5cff)
-                .setDescription(
-                  updateMessage(
-                    type,
-                    title,
-                    description,
-                    extra
-                  )
-                )
-                .setFooter({
-                  text:
-                    "TVB Assistant • Updates"
-                })
-                .setTimestamp()
+              updateEmbed(
+                type,
+                title,
+                description,
+                extra
+              )
             ]
           });
 
@@ -3210,7 +4108,9 @@ client.on(
           interaction.commandName ===
           "giveaway"
         ) {
-          if (!manager(interaction)) {
+          if (
+            !manager(interaction)
+          ) {
             return interaction.reply({
               content:
                 "❌ You need Manage Server to use giveaways.",
@@ -3222,27 +4122,28 @@ client.on(
             interaction.options.getSubcommand();
 
           if (
-            subcommand === "start"
+            subcommand ===
+            "start"
           ) {
             return startGiveaway(
-              interaction,
-              interaction.options.getString(
-                "duration"
-              ),
-              interaction.options.getInteger(
-                "winners"
-              ),
-              interaction.options.getString(
-                "prize"
-              )
+              interaction
+            );
+          }
+
+          if (
+            subcommand ===
+            "reroll"
+          ) {
+            return rerollGiveaway(
+              interaction
             );
           }
         }
       }
 
-      /* =====================================================
+      /* ===================================================
          TICKET SELECT
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isStringSelectMenu() &&
@@ -3252,22 +4153,14 @@ client.on(
         const type =
           interaction.values[0];
 
-        if (!TICKETS[type]) {
-          return interaction.reply({
-            content:
-              "❌ Invalid ticket type.",
-            ephemeral: true
-          });
-        }
-
         return interaction.showModal(
           ticketModal(type)
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          SERVICE SELECT
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isStringSelectMenu() &&
@@ -3277,37 +4170,32 @@ client.on(
         const type =
           interaction.values[0];
 
-        if (!SERVICES[type]) {
-          return interaction.reply({
-            content:
-              "❌ Invalid service type.",
-            ephemeral: true
-          });
-        }
-
         return interaction.showModal(
           serviceModal(type)
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          APPLICATION SELECT
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isStringSelectMenu() &&
         interaction.customId ===
           "application-select"
       ) {
+        const type =
+          interaction.values[0];
+
         return startApplication(
           interaction,
-          interaction.values[0]
+          type
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          TICKET MODAL
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isModalSubmit() &&
@@ -3347,9 +4235,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          SERVICE MODAL
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isModalSubmit() &&
@@ -3395,9 +4283,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          ROLE BUTTON
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isButton() &&
@@ -3410,9 +4298,9 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          CLOSE TICKET
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isButton() &&
@@ -3424,9 +4312,24 @@ client.on(
         );
       }
 
-      /* =====================================================
+      /* ===================================================
+         GIVEAWAY BUTTON
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          "giveaway-enter-"
+        )
+      ) {
+        return enterGiveaway(
+          interaction
+        );
+      }
+
+      /* ===================================================
          APPLICATION ACTION
-      ===================================================== */
+      =================================================== */
 
       if (
         interaction.isButton() &&
@@ -3444,28 +4347,6 @@ client.on(
       ) {
         return handleApplicationAction(
           interaction
-        );
-      }
-
-      /* =====================================================
-         GIVEAWAY BUTTON
-      ===================================================== */
-
-      if (
-        interaction.isButton() &&
-        interaction.customId.startsWith(
-          "giveaway-enter-"
-        )
-      ) {
-        const giveawayId =
-          interaction.customId.replace(
-            "giveaway-enter-",
-            ""
-          );
-
-        return enterGiveaway(
-          interaction,
-          giveawayId
         );
       }
     } catch (error) {
@@ -3489,101 +4370,7 @@ client.on(
 );
 
 /* =========================================================
-   PERMANENT 5-MINUTE BOT ACTIVITY HEARTBEAT
-========================================================= */
-
-/*
-   IMPORTANT:
-
-   This runs continuously for as long as the Node.js process
-   itself is alive.
-
-   It sends "a" to #bot-activity every 5 minutes.
-
-   The first "a" is sent immediately after login.
-
-   This does NOT magically prevent a hosting provider from
-   shutting down/sleeping the Node process. For actual 24/7
-   uptime, use an always-on hosting service/plan.
-*/
-
-let heartbeatRunning = false;
-
-async function sendBotActivityHeartbeat() {
-  if (heartbeatRunning) return;
-
-  heartbeatRunning = true;
-
-  try {
-    for (
-      const guild of client.guilds.cache.values()
-    ) {
-      const channel =
-        findText(
-          guild,
-          "bot-activity"
-        );
-
-      if (!channel) {
-        console.log(
-          `#bot-activity not found in ${guild.name}`
-        );
-        continue;
-      }
-
-      try {
-        await channel.send("a");
-
-        console.log(
-          `[HEARTBEAT] Sent "a" in #bot-activity for ${guild.name}`
-        );
-      } catch (error) {
-        console.error(
-          `Could not send heartbeat in ${guild.name}:`,
-          error
-        );
-      }
-    }
-  } catch (error) {
-    console.error(
-      "Heartbeat error:",
-      error
-    );
-  } finally {
-    heartbeatRunning = false;
-  }
-}
-
-/*
-   Start heartbeat after the Discord client is ready.
-*/
-
-client.once("ready", async () => {
-  console.log(
-    "[HEARTBEAT] Starting permanent 5-minute heartbeat."
-  );
-
-  /*
-     Send immediately.
-  */
-
-  await sendBotActivityHeartbeat();
-
-  /*
-     Then every 5 minutes forever while
-     this Node process is running.
-  */
-
-  setInterval(
-    async () => {
-      await sendBotActivityHeartbeat();
-    },
-    5 * 60 * 1000
-  );
-});
-
-/* =========================================================
-   ERROR HANDLING
+   PROCESS ERROR HANDLING
 ========================================================= */
 
 process.on(
